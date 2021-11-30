@@ -1,6 +1,7 @@
 package paxos
 
 import (
+	"github.com/ailidani/paxi/log"
 	"strconv"
 	"time"
 
@@ -103,8 +104,14 @@ func (p *Paxos) P1a() {
 	}
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
-	p.quorum.ACK(p.ID())
-	p.Broadcast(P1a{Ballot: p.ballot})
+	//p.quorum.ACK(p.ID())
+
+	// TODO: Temporarily separate leader (proposer) with acceptors
+	//p.Broadcast(P1a{Ballot: p.ballot})
+	N := paxi.GetConfig().N()-1
+	for i := 0; i < N; i++ {
+		p.Send(paxi.NewID(1, 2+i), P1a{Ballot: p.ballot})
+	}
 }
 
 // P2a starts phase 2 accept
@@ -117,17 +124,27 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
 	}
-	p.log[p.slot].quorum.ACK(p.ID())
+	// TODO: Temporarily separate leader (proposer) with acceptors
+	//p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
 		Ballot:  p.ballot,
 		Slot:    p.slot,
 		Command: r.Command,
+		SendTime: time.Now(),
 	}
-	if paxi.GetConfig().Thrifty {
-		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
-	} else {
-		p.Broadcast(m)
+
+	s := time.Now()
+	N := paxi.GetConfig().N()-1
+	for i := 0; i < N; i++ {
+		p.Send(paxi.NewID(1, 2+i), m)
 	}
+	log.Infof("time to broadcast propose messages to %d nodes: %v\n", N, time.Since(s))
+
+	//if paxi.GetConfig().Thrifty {
+	//	p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
+	//} else {
+	//	p.Broadcast(m)
+	//}
 }
 
 // HandleP1a handles P1a message
@@ -261,6 +278,7 @@ func (p *Paxos) HandleP2a(m P2a) {
 		Ballot: p.ballot,
 		Slot:   m.Slot,
 		ID:     p.ID(),
+		SendTime: time.Now(),
 	})
 }
 
@@ -273,6 +291,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 	}
 
 	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, p.ID())
+	log.Infof("%d time until received by leader %v", m.Slot, time.Since(m.SendTime))
 
 	// reject message
 	// node update its ballot number and falls back to acceptor
@@ -346,6 +365,7 @@ func (p *Paxos) exec() {
 		if !ok || !e.commit {
 			break
 		}
+		log.Infof("%d time from created until executed %v", p.execute, time.Since(e.timestamp))
 		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
 		value := p.Execute(e.command)
 		if e.request != nil {

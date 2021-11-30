@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/ailidani/paxi/opaxos"
 	"sync"
 
 	"github.com/ailidani/paxi"
@@ -25,6 +26,7 @@ import (
 var algorithm = flag.String("algorithm", "paxos", "Distributed algorithm")
 var id = flag.String("id", "", "ID in format of Zone.Node.")
 var simulation = flag.Bool("sim", false, "simulation mode")
+var opaxosThreshold = flag.Int("k", 1, "Minimum number of shares to reconstruct a secret")
 
 var master = flag.String("master", "", "Master address.")
 
@@ -78,6 +80,9 @@ func replica(id paxi.ID) {
 
 	case "hpaxos":
 		hpaxos.NewReplica(id).Run()
+
+	case "opaxos":
+		opaxos.NewReplica(id, 2).Run()
 
 	default:
 		panic("Unknown algorithm")

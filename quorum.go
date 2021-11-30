@@ -66,6 +66,12 @@ func (q *Quorum) FastQuorum() bool {
 	return q.size >= config.n*3/4
 }
 
+func (q *Quorum) MajorityWithKIntersection(k int) bool {
+	// TODO: relax the assumption, currently we are assuming 1.1 is proposer/leader
+	// and the other replicas are acceptor.
+	return q.size >= (config.n+k)/2
+}
+
 // AllZones returns true if there is at one ack from each zone
 func (q *Quorum) AllZones() bool {
 	return len(q.zones) == config.z
