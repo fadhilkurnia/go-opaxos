@@ -54,6 +54,10 @@ func (i ID) Node() int {
 	return int(node)
 }
 
+func (i ID) Equal(x ID) bool {
+	return i.Zone() == x.Zone() && i.Node() == x.Node()
+}
+
 type IDs []ID
 
 func (a IDs) Len() int      { return len(a) }

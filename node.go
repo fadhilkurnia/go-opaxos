@@ -18,6 +18,7 @@ type Node interface {
 	Retry(r Request)
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
+	GetConfig() *Config
 }
 
 // node implements Node interface
@@ -48,6 +49,10 @@ func NewNode(id ID) Node {
 
 func (n *node) ID() ID {
 	return n.id
+}
+
+func (n *node) GetConfig() *Config {
+	return &config
 }
 
 func (n *node) Retry(r Request) {

@@ -20,7 +20,7 @@ func init() {
  * Client-Replica Messages *
  ***************************/
 
-// Request is client reqeust with http response channel
+// Request is client request with http response channel
 type Request struct {
 	Command    Command
 	Properties map[string]string

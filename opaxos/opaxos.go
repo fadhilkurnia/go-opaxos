@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"github.com/hashicorp/vault/shamir"
+	"github.com/fadhilkurnia/shamir/shamir"
 	"strconv"
 	"time"
 )
@@ -12,9 +12,10 @@ import (
 // entry in log
 type entry struct {
 	ballot    paxi.Ballot
-	command   paxi.Command
-	commit    bool
-	request   *paxi.Request
+	command   paxi.Command  // clear command
+	ssCommand ClientCommand // secret shared command
+	commit    bool          // commit indicates whether this entry is already committed or not
+	request   *paxi.Request // each request has reply channel, so we need to store it
 	quorum    *paxi.Quorum
 	timestamp time.Time
 }
@@ -23,12 +24,16 @@ type entry struct {
 type OPaxos struct {
 	paxi.Node
 
-	config []paxi.ID
-	K      int // minimum number of secret shares to make it reconstructible
+	config     []paxi.ID
+	K          int // the minimum number of secret shares to make it reconstructible
+	N          int // the number of nodes
+	IsProposer bool
+	IsAcceptor bool
+	IsLearner  bool
+	IsLeader   bool // IsLeader indicates whether this instance perceives itself as a leader or not
 
 	log     map[int]*entry // log ordered by slot
 	execute int            // next execute slot number
-	active  bool           // active leader
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
@@ -38,10 +43,24 @@ type OPaxos struct {
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
 	ReplyWhenCommit bool
+
+	// TODO: parse config so the OPaxos instance know the list of each roles.
+	// A proposer can send a clear proposed value to other proposer, but need to
+	// send a secret shared value to the acceptor.
+	// proposerIDs []ID
+	// acceptorIDs []ID
+	// learnerIDs  []ID
+
+	// TODO: a learner which also a proposer can execute command in the DB, but learner that not a proposer
+	// just need to change the execute slot number, since it can not execute a secret shared command.
+
+	// TODO: learner only node does not need http server
+	// TODO: the OPaxos implementation should be oblivious with the command sent ([]byte), it is the replica's job
+	// to parse and execute the command.
 }
 
-// NewOPaxos creates new OPaxos instance
-func NewOPaxos(n paxi.Node, ssThreshold int, options ...func(*OPaxos)) *OPaxos {
+// NewOPaxos creates new OPaxos instance (constructor)
+func NewOPaxos(n paxi.Node, ssThreshold int, roles []string, options ...func(*OPaxos)) *OPaxos {
 	op := &OPaxos{
 		Node:            n,
 		log:             make(map[int]*entry, paxi.GetConfig().BufferSize),
@@ -49,6 +68,7 @@ func NewOPaxos(n paxi.Node, ssThreshold int, options ...func(*OPaxos)) *OPaxos {
 		quorum:          paxi.NewQuorum(),
 		requests:        make([]*paxi.Request, 0),
 		K:               ssThreshold,
+		N:               n.GetConfig().N(),
 		Q1:              func(q *paxi.Quorum) bool { return q.MajorityWithKIntersection(ssThreshold) },
 		Q2:              func(q *paxi.Quorum) bool { return q.MajorityWithKIntersection(ssThreshold) },
 		ReplyWhenCommit: false,
@@ -58,12 +78,25 @@ func NewOPaxos(n paxi.Node, ssThreshold int, options ...func(*OPaxos)) *OPaxos {
 		opt(op)
 	}
 
+	// parse roles
+	for _, r := range roles {
+		if r == "proposer" {
+			op.IsProposer = true
+		}
+		if r == "acceptor" {
+			op.IsAcceptor = true
+		}
+		if r == "learner" {
+			op.IsLearner = true
+		}
+	}
+
 	return op
 }
 
 // HandleRequest handles request and start phase 1 or phase 2
 func (op *OPaxos) HandleRequest(r paxi.Request) {
-	if !op.active {
+	if !op.IsLeader {
 		op.requests = append(op.requests, &r)
 
 		// start phase 1 if this replica has not started it previously
@@ -77,28 +110,50 @@ func (op *OPaxos) HandleRequest(r paxi.Request) {
 
 // Prepare initiates phase 1 of opaxos
 func (op *OPaxos) Prepare() {
-	if op.active {
+	if op.IsLeader {
 		return
 	}
 	op.ballot.Next(op.ID())
 	op.quorum.Reset()
-	// since this replica is a proposer, it does not ack the message
-	// op.quorum.ACK(op.ID())
+	op.quorum.ACK(op.ID())
 	op.Broadcast(PrepareRequest{Ballot: op.ballot})
 }
 
 // Propose initiates phase 2 of opaxos
 func (op *OPaxos) Propose(r *paxi.Request) {
+	// secret shared the command
+	ssCommand, err := op.secretSharesCommand(r.Command)
+	if err != nil {
+		log.Errorf("failed to secret share command %v", err)
+		return
+	}
+
 	op.slot++
 	op.log[op.slot] = &entry{
 		ballot:    op.ballot,
 		command:   r.Command,
+		ssCommand: ClientCommand{ssCommand[0], r.Command.ClientID},
 		request:   r,
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
 	}
-	// since this replica is a proposer, it does not ack the message
-	// op.log[op.slot].quorum.ACK(op.ID())
+	op.log[op.slot].quorum.ACK(op.ID())
+
+	// TODO: broadcast clear message to other proposer, secret shared message to learner
+	proposeRequests := make([]interface{}, op.N-1)
+	for i := 0; i < op.N-1; i++ {
+		proposeRequests[i] = ProposeRequest{
+			Ballot:   op.ballot,
+			Slot:     op.slot,
+			Command:  ClientCommand{ssCommand[i+1], r.Command.ClientID},
+			SendTime: time.Now(),
+		}
+	}
+	op.BroadcastUniqueMessage(proposeRequests)
+}
+
+func (op *OPaxos) secretSharesCommand(c paxi.Command) ([][]byte, error) {
+	log.Debugf("proposer: secret share the proposed value")
 
 	// TODO: do secret sharing here correctly
 	//var cmdBytes bytes.Buffer
@@ -107,39 +162,31 @@ func (op *OPaxos) Propose(r *paxi.Request) {
 	//	log.Errorf("failed to secret shares client's value, %v\n", err)
 	//	return
 	//}
+
 	s := time.Now()
-	cmdBytes, err := json.Marshal(r.Command)
+	cmdBytes, err := json.Marshal(c)
 	if err != nil {
 		log.Errorf("failed to encode command %v\n", err)
-		return
+		return nil, err
 	}
-	log.Infof("time to encode command %v\n", time.Since(s))
+	log.Debugf("time to encode command %v\n", time.Since(s))
+
 	s = time.Now()
-	secretShares, err := shamir.Split(cmdBytes, paxi.GetConfig().N()-1, op.K)
+	secretShares, err := shamir.Split(cmdBytes, op.N, op.K)
 	if err != nil {
 		log.Errorf("failed to split secret %v\n", err)
+		return nil, err
 	}
 	log.Infof("time to secret share command %v\n", time.Since(s))
 
-	s = time.Now()
-	for i := 0; i < len(secretShares); i++ {
-		share := secretShares[i]
-		m := ProposeRequest{
-			Ballot:       op.ballot,
-			Slot:         op.slot,
-			CommandShare: share,
-			SendTime:     s,
-			//Command:      r.Command,
-		}
-		op.Send(paxi.NewID(1, 2+i), m)
-	}
-	log.Infof("time to broadcast propose messages to %d nodes: %v\n", len(secretShares), time.Since(s))
+	return secretShares, nil
 }
 
 func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
+	// handle if there is a new leader with higher ballot number
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
-		op.active = false
+		op.IsLeader = false
 	}
 
 	l := make(map[int]CommandBallot)
@@ -147,7 +194,9 @@ func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
 		if op.log[s] == nil || op.log[s].commit {
 			continue
 		}
-		l[s] = CommandBallot{op.log[s].command, op.log[s].ballot}
+		l[s] = CommandBallot{op.log[s].ssCommand, op.log[s].ballot}
+
+		// TODO: if this is a proposer, send clear command to the new leader, instead of the secret shared one.
 	}
 
 	// Send PrepareResponse back to proposer / leader
@@ -159,22 +208,24 @@ func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
 }
 
 func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
-	// TODO: update our log
-
-	// handle old message
-	if m.Ballot < op.ballot || op.active {
+	// handle old message from the previous leadership
+	if m.Ballot < op.ballot || op.IsLeader {
 		return
 	}
 
+	// update current leadership
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
 	}
 
 	// ack message
-	if m.Ballot.ID() == op.ID() && m.Ballot == op.ballot {
+	if m.Ballot == op.ballot && m.Ballot.ID() == op.ID() {
 		op.quorum.ACK(m.ID)
+
+		// TODO: store the PrepareResponse for reconstruction, if necessary.
+
 		if op.Q1(op.quorum) {
-			op.active = true
+			op.IsLeader = true
 
 			// propose any uncommitted entries
 			for i := op.execute; i <= op.slot; i++ {
@@ -185,11 +236,23 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 				op.log[i].ballot = op.ballot
 				op.log[i].quorum = paxi.NewQuorum()
 
-				op.Broadcast(ProposeRequest{
-					Ballot:  op.ballot,
-					Slot:    i,
-					Command: op.log[i].command,
-				})
+				ssCommand, err := op.secretSharesCommand(op.log[i].command)
+				if err != nil {
+					log.Errorf("failed to secret share command %v", err)
+					return
+				}
+
+				// TODO: broadcast clear message to other proposer, secret shared message to learner
+				proposeRequests := make([]interface{}, op.N-1)
+				for i := 0; i < op.N-1; i++ {
+					proposeRequests[i] = ProposeRequest{
+						Ballot:   op.ballot,
+						Slot:     i,
+						Command:  ClientCommand{ssCommand[i+1], op.log[i].ssCommand.ClientID},
+						SendTime: time.Now(),
+					}
+				}
+				op.BroadcastUniqueMessage(proposeRequests)
 			}
 
 			// propose new commands
@@ -204,50 +267,51 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 }
 
 func (op *OPaxos) HandleProposeRequest(m ProposeRequest) {
+
+	// TODO: handle if this is another proposer
+
 	if m.Ballot >= op.ballot {
 		op.ballot = m.Ballot
-		op.active = false
+		op.IsLeader = false
 
-		log.Infof("message %v acked after %v\n", m.Slot, time.Since(m.SendTime))
+		log.Infof("message slot=%v acked after %v\n", m.Slot, time.Since(m.SendTime))
 
 		// update slot number
 		op.slot = paxi.Max(op.slot, m.Slot)
 
 		// update entry
 		if e, exists := op.log[m.Slot]; exists {
-			if !e.commit && m.Ballot > e.ballot {
-				if !e.command.Equal(m.Command) && e.request != nil {
-					e.request = nil
-				}
+			if !e.commit && m.Ballot > e.ballot && e.request != nil {
+				e.request = nil
 			}
-			e.command = m.Command
+			e.ssCommand = m.Command
 			e.ballot = m.Ballot
 		} else {
 			op.log[m.Slot] = &entry{
-				ballot:  m.Ballot,
-				command: m.Command,
-				commit:  false,
+				ballot:    m.Ballot,
+				ssCommand: m.Command,
+				commit:    false,
 			}
 		}
 	}
 
 	// reply to proposer
 	op.Send(m.Ballot.ID(), ProposeResponse{
-		Ballot: op.ballot,
-		Slot:   m.Slot,
-		ID:     op.ID(),
-		SendTime: time.Now(),
+		Ballot:   op.ballot,
+		Slot:     m.Slot,
+		ID:       op.ID(),
+		SendTime: m.SendTime,
 	})
 }
 
 func (op *OPaxos) HandleProposeResponse(m ProposeResponse) {
-	// handle old message
+	// handle old message and committed command
 	entry, exist := op.log[m.Slot]
 	if !exist || m.Ballot < entry.ballot || entry.commit {
 		return
 	}
 
-	log.Infof("%d time until received by leader %v", m.Slot, time.Since(m.SendTime))
+	log.Infof("for slot=%d, time until received by leader %v", m.Slot, time.Since(m.SendTime))
 
 	// update the highest ballot
 	if m.Ballot > op.ballot {
@@ -259,9 +323,9 @@ func (op *OPaxos) HandleProposeResponse(m ProposeResponse) {
 		if op.Q2(op.log[m.Slot].quorum) {
 			op.log[m.Slot].commit = true
 			op.Broadcast(CommitRequest{
-				Ballot:  m.Ballot,
-				Slot:    m.Slot,
-				Command: op.log[m.Slot].command,
+				Ballot:   m.Ballot,
+				Slot:     m.Slot,
+				ClientID: op.log[m.Slot].ssCommand.ClientID,
 			})
 
 			// update execute slot idx
@@ -275,7 +339,7 @@ func (op *OPaxos) HandleCommitRequest(m CommitRequest) {
 
 	e, exist := op.log[m.Slot]
 	if exist {
-		if !e.command.Equal(m.Command) && e.request != nil {
+		if !e.ssCommand.ClientID.Equal(m.ClientID) && e.request != nil {
 			e.request = nil
 		}
 	} else {
@@ -283,7 +347,6 @@ func (op *OPaxos) HandleCommitRequest(m CommitRequest) {
 		e = op.log[m.Slot]
 	}
 
-	e.command = m.Command
 	e.commit = true
 
 	op.exec()
@@ -295,9 +358,13 @@ func (op *OPaxos) exec() {
 		if !ok || !e.commit {
 			break
 		}
-		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
-		log.Infof("%d time from created until executed %v", op.execute, time.Since(e.timestamp))
-		value := op.Execute(e.command)
+
+		// only learner what also a proposer that can execute the command
+		value := paxi.Value{}
+		if op.IsLearner && op.IsProposer {
+			value = op.Execute(e.command)
+		}
+
 		if e.request != nil {
 			reply := paxi.Reply{
 				Command:    e.command,
@@ -309,6 +376,7 @@ func (op *OPaxos) exec() {
 			reply.Properties[HTTPHeaderExecute] = strconv.Itoa(op.execute)
 			e.request.Reply(reply)
 			e.request = nil
+			log.Infof("slot=%d time from received until executed %v", op.execute, time.Since(e.timestamp))
 		}
 		// TODO clean up the log periodically
 		delete(op.log, op.execute)

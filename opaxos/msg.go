@@ -27,14 +27,19 @@ func (m PrepareRequest) String() string {
 // PrepareResponse response of prepare (promise message),
 // sent from acceptor to proposer
 type PrepareResponse struct {
-	Ballot paxi.Ballot
-	ID     paxi.ID               // from node id
+	Ballot paxi.Ballot           // sender leader's node-id
+	ID     paxi.ID               // sender node-id
 	Log    map[int]CommandBallot // uncommitted logs
+}
+
+type ClientCommand struct {
+	Command  []byte
+	ClientID paxi.ID
 }
 
 // CommandBallot combines each command with its ballot number
 type CommandBallot struct {
-	Command paxi.Command
+	Command ClientCommand
 	Ballot  paxi.Ballot
 }
 
@@ -45,11 +50,10 @@ func (m PrepareResponse) String() string {
 // ProposeRequest propose message from proposer to acceptor in Phase 2
 // accept message.
 type ProposeRequest struct {
-	Ballot       paxi.Ballot
-	Slot         int
-	Command      paxi.Command
-	CommandShare []byte
-	SendTime     time.Time
+	Ballot   paxi.Ballot
+	Slot     int
+	Command  ClientCommand
+	SendTime time.Time
 }
 
 func (m ProposeRequest) String() string {
@@ -58,9 +62,9 @@ func (m ProposeRequest) String() string {
 
 // ProposeResponse response of propose message, sent from acceptor to proposer
 type ProposeResponse struct {
-	Ballot paxi.Ballot
-	ID     paxi.ID
-	Slot   int
+	Ballot   paxi.Ballot
+	ID       paxi.ID
+	Slot     int
 	SendTime time.Time
 }
 
@@ -70,11 +74,11 @@ func (m ProposeResponse) String() string {
 
 // CommitRequest message issued by proposer/leader to persist a previously accepted value
 type CommitRequest struct {
-	Ballot  paxi.Ballot
-	Slot    int
-	Command paxi.Command
+	Ballot   paxi.Ballot
+	Slot     int
+	ClientID paxi.ID
 }
 
 func (m CommitRequest) String() string {
-	return fmt.Sprintf("CommitRequest {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
+	return fmt.Sprintf("CommitRequest {b=%v s=%d}", m.Ballot, m.Slot)
 }

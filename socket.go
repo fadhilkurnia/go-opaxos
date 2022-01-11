@@ -23,6 +23,9 @@ type Socket interface {
 	// Broadcast send to all peers
 	Broadcast(m interface{})
 
+	// BroadcastUniqueMessage send to all peers with the provided message
+	BroadcastUniqueMessage(ms []interface{})
+
 	// Recv receives a message
 	Recv() interface{}
 
@@ -156,12 +159,29 @@ func (s *socket) MulticastQuorum(quorum int, m interface{}) {
 }
 
 func (s *socket) Broadcast(m interface{}) {
-	//log.Debugf("node %s broadcasting message %+v", s.id, m)
+	log.Debugf("node %s broadcasting message %+v", s.id, m)
 	for id := range s.addresses {
 		if id == s.id {
 			continue
 		}
 		s.Send(id, m)
+	}
+}
+
+func (s *socket) BroadcastUniqueMessage(ms []interface{}) {
+	log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
+	if len(ms) < len(s.addresses)-1 {
+		log.Fatalf("need more message to be sent to the peers, expecting %d messages but only get %d",
+			len(s.addresses)-1, len(ms))
+		return
+	}
+	i := 0
+	for id := range s.addresses {
+		if id == s.id {
+			continue
+		}
+		s.Send(id, ms[i])
+		i++
 	}
 }
 

@@ -104,14 +104,9 @@ func (p *Paxos) P1a() {
 	}
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
-	//p.quorum.ACK(p.ID())
+	p.quorum.ACK(p.ID())
 
-	// TODO: Temporarily separate leader (proposer) with acceptors
-	//p.Broadcast(P1a{Ballot: p.ballot})
-	N := paxi.GetConfig().N()-1
-	for i := 0; i < N; i++ {
-		p.Send(paxi.NewID(1, 2+i), P1a{Ballot: p.ballot})
-	}
+	p.Broadcast(P1a{Ballot: p.ballot})
 }
 
 // P2a starts phase 2 accept
@@ -124,8 +119,7 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
 	}
-	// TODO: Temporarily separate leader (proposer) with acceptors
-	//p.log[p.slot].quorum.ACK(p.ID())
+	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
 		Ballot:  p.ballot,
 		Slot:    p.slot,
@@ -133,18 +127,11 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		SendTime: time.Now(),
 	}
 
-	s := time.Now()
-	N := paxi.GetConfig().N()-1
-	for i := 0; i < N; i++ {
-		p.Send(paxi.NewID(1, 2+i), m)
+	if paxi.GetConfig().Thrifty {
+		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
+	} else {
+		p.Broadcast(m)
 	}
-	log.Infof("time to broadcast propose messages to %d nodes: %v\n", N, time.Since(s))
-
-	//if paxi.GetConfig().Thrifty {
-	//	p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
-	//} else {
-	//	p.Broadcast(m)
-	//}
 }
 
 // HandleP1a handles P1a message
