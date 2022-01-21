@@ -61,6 +61,13 @@ type OPaxos struct {
 
 // NewOPaxos creates new OPaxos instance (constructor)
 func NewOPaxos(n paxi.Node, ssThreshold int, roles []string, options ...func(*OPaxos)) *OPaxos {
+
+	var quorum1 = (n.GetConfig().N()/2)+ssThreshold
+	var quorum2 = (n.GetConfig().N()/2)+1
+	if n.GetConfig().N() % 2 == 0 {
+		quorum1 -= 1
+	}
+
 	op := &OPaxos{
 		Node:            n,
 		log:             make(map[int]*entry, paxi.GetConfig().BufferSize),
@@ -69,8 +76,8 @@ func NewOPaxos(n paxi.Node, ssThreshold int, roles []string, options ...func(*OP
 		requests:        make([]*paxi.Request, 0),
 		K:               ssThreshold,
 		N:               n.GetConfig().N(),
-		Q1:              func(q *paxi.Quorum) bool { return q.MajorityWithKIntersection(ssThreshold) },
-		Q2:              func(q *paxi.Quorum) bool { return q.MajorityWithKIntersection(ssThreshold) },
+		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(quorum1) },
+		Q2:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(quorum2) },
 		ReplyWhenCommit: false,
 	}
 

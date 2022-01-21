@@ -72,6 +72,10 @@ func (q *Quorum) MajorityWithKIntersection(k int) bool {
 	return q.size >= (config.n+k)/2
 }
 
+func (q *Quorum) CardinalityBasedQuorum(c int) bool {
+	return q.size >= c
+}
+
 // AllZones returns true if there is at one ack from each zone
 func (q *Quorum) AllZones() bool {
 	return len(q.zones) == config.z
