@@ -11,10 +11,11 @@ var opaxosThreshold = flag.Int("opaxos_k", 2, "minimum number of shares to recon
 var opaxosRoles = flag.String("opaxos_roles", "proposer,acceptor,learner", "the roles of this server, separated by comma.")
 
 const (
-	HTTPHeaderSlot       = "Slot"
-	HTTPHeaderBallot     = "Ballot"
-	HTTPHeaderExecute    = "Execute"
-	HTTPHeaderInProgress = "Inprogress"
+	HTTPHeaderSlot         = "Slot"
+	HTTPHeaderBallot       = "Ballot"
+	HTTPHeaderExecute      = "Execute"
+	HTTPHeaderInProgress   = "Inprogress"
+	HTTPHeaderEncodingTime = "Encoding"
 )
 
 type Replica struct {

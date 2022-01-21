@@ -20,11 +20,14 @@ type Socket interface {
 	// MulticastQuorum sends msg to random number of nodes
 	MulticastQuorum(quorum int, m interface{})
 
+	// MulticastUniqueMessage sends to all peers with the provided message
+	MulticastUniqueMessage(ms []interface{})
+
+	// MulticastQuorumUniqueMessage sends to a random quorum of peers with the provided message
+	MulticastQuorumUniqueMessage(quorum int, ms[]interface{})
+
 	// Broadcast send to all peers
 	Broadcast(m interface{})
-
-	// BroadcastUniqueMessage send to all peers with the provided message
-	BroadcastUniqueMessage(ms []interface{})
 
 	// Recv receives a message
 	Recv() interface{}
@@ -158,18 +161,8 @@ func (s *socket) MulticastQuorum(quorum int, m interface{}) {
 	}
 }
 
-func (s *socket) Broadcast(m interface{}) {
-	log.Debugf("node %s broadcasting message %+v", s.id, m)
-	for id := range s.addresses {
-		if id == s.id {
-			continue
-		}
-		s.Send(id, m)
-	}
-}
-
-func (s *socket) BroadcastUniqueMessage(ms []interface{}) {
-	log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
+func (s *socket) MulticastUniqueMessage(ms []interface{}) {
+	//log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
 	if len(ms) < len(s.addresses)-1 {
 		log.Fatalf("need more message to be sent to the peers, expecting %d messages but only get %d",
 			len(s.addresses)-1, len(ms))
@@ -182,6 +175,35 @@ func (s *socket) BroadcastUniqueMessage(ms []interface{}) {
 		}
 		s.Send(id, ms[i])
 		i++
+	}
+}
+
+func (s *socket) MulticastQuorumUniqueMessage(quorum int, ms[]interface{}) {
+	if len(ms) < quorum {
+		log.Fatalf("need more message to be sent to the peers, expecting %d messages but only get %d",
+			quorum, len(ms))
+		return
+	}
+	i := 0
+	for id := range s.addresses {
+		if id == s.id {
+			continue
+		}
+		s.Send(id, ms[i])
+		i++
+		if i == quorum {
+			break
+		}
+	}
+}
+
+func (s *socket) Broadcast(m interface{}) {
+	//log.Debugf("node %s broadcasting message %+v", s.id, m)
+	for id := range s.addresses {
+		if id == s.id {
+			continue
+		}
+		s.Send(id, m)
 	}
 }
 
