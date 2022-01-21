@@ -14,6 +14,7 @@ type DB interface {
 	Init() error
 	Read(key int) (int, error)
 	Write(key, value int) error
+	Write2(key, value int) (interface{}, error)
 	Stop() error
 }
 
@@ -253,9 +254,11 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 		if rand.Float64() < b.W {
 			v = rand.Int()
 			s = time.Now()
-			err = b.db.Write(k, v)
+			ret, errx := b.db.Write2(k, v)
+			err = errx
 			e = time.Now()
 			op.input = v
+			op.output = ret
 		} else {
 			s = time.Now()
 			v, err = b.db.Read(k)

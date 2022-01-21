@@ -20,6 +20,7 @@ import (
 type Client interface {
 	Get(Key) (Value, error)
 	Put(Key, Value) error
+	Put2(Key, Value) (interface{}, error)
 }
 
 // AdminClient interface provides fault injection opeartion
@@ -78,6 +79,12 @@ func (c *HTTPClient) Put(key Key, value Value) error {
 	c.CID++
 	_, _, err := c.RESTPut(c.ID, key, value)
 	return err
+}
+
+func (c *HTTPClient) Put2(key Key, value Value) (interface{}, error) {
+	c.CID++
+	_, v, err := c.RESTPut(c.ID, key, value)
+	return v, err
 }
 
 func (c *HTTPClient) GetURL(id ID, key Key) string {

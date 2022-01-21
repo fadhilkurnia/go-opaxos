@@ -34,11 +34,11 @@
     "buffer_size": 1024,
     "multiversion": false,
     "benchmark": {
-        "T": 60,
+        "T": 10,
         "N": 0,
         "K": 100000,
         "W": 1.0,
-        "Throttle": 100000,
+        "Throttle": 1,
         "Concurrency": 1,
         "Distribution": "uniform",
         "LinearizabilityCheck": false,

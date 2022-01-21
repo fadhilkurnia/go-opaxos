@@ -84,21 +84,21 @@ func (h *History) WriteFile(path string) error {
 
 	sort.Sort(byTime(h.operations))
 
-	latency := 0.0
-	throughput := 0
-	s := 1.0
+	//latency := 0.0
+	//throughput := 0
+	//s := 1.0
 	for _, o := range h.operations {
-		start := float64(o.start) / 1000000000.0
-		end := float64(o.end) / 1000000000.0
-		fmt.Fprintf(w, "%v,%v,%f,%f\n", o.input, o.output, start, end)
-		latency += end - start
-		throughput++
-		if end > s {
-			fmt.Fprintf(w, "PerSecond %f %d\n", latency/float64(throughput)*1000.0, throughput)
-			latency = 0
-			throughput = 0
-			s++
-		}
+		//start := float64(o.start) / 1000000000.0
+		//end := float64(o.end) / 1000000000.0
+		fmt.Fprintf(w, "%v,%v,%d,%d, %d\n", o.input, o.output, o.start, o.end, o.end-o.start)
+		//latency += end - start
+		//throughput++
+		//if end > s {
+		//	fmt.Fprintf(w, "PerSecond %f %d\n", latency/float64(throughput)*1000.0, throughput)
+		//	latency = 0
+		//	throughput = 0
+		//	s++
+		//}
 
 		// fmt.Fprintln(w, o)
 	}

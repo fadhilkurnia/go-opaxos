@@ -406,7 +406,7 @@ func (op *OPaxos) exec() {
 			reply.Properties[HTTPHeaderSlot] = strconv.Itoa(op.execute)
 			reply.Properties[HTTPHeaderBallot] = e.ballot.String()
 			reply.Properties[HTTPHeaderExecute] = strconv.Itoa(op.execute)
-			reply.Properties[HTTPHeaderEncodingTime] = strconv.Itoa(int(e.encodingTime.Milliseconds()))
+			reply.Properties[HTTPHeaderEncodingTime] = strconv.FormatInt(e.encodingTime.Nanoseconds(), 10)
 			e.request.Reply(reply)
 			e.request = nil
 			//log.Infof("slot=%d time from received until executed %v", op.execute, time.Since(e.timestamp))

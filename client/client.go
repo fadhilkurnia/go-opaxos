@@ -45,6 +45,14 @@ func (d *db) Write(k, v int) error {
 	return err
 }
 
+func (d *db) Write2(k, v int) (interface{}, error) {
+	key := paxi.Key(k)
+	value := make([]byte, binary.MaxVarintLen64)
+	binary.PutUvarint(value, uint64(v))
+	ret, err := d.Put2(key, value)
+	return ret, err
+}
+
 func main() {
 	paxi.Init()
 
