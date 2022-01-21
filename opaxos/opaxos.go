@@ -165,7 +165,7 @@ func (op *OPaxos) Propose(r *paxi.Request) {
 		proposeRequests[i] = ProposeRequest{
 			Ballot:   op.ballot,
 			Slot:     op.slot,
-			Command:  ClientCommand{ssCommand[i+1], r.Command.ClientID},
+			Command:  ClientCommand{ssCommand[i], r.Command.ClientID},
 			SendTime: time.Now(),
 		}
 	}
