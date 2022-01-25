@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+var opaxosAlgorithm = flag.String("opaxos_alg", AlgShamir, "secret-sharing algorithm: [shamir, ssms]")
 var opaxosThreshold = flag.Int("opaxos_k", 2, "minimum number of shares to reconstruct a secret")
 var opaxosRoles = flag.String("opaxos_roles", "proposer,acceptor,learner", "the roles of this server, separated by comma.")
 
@@ -26,12 +27,13 @@ type Replica struct {
 func NewReplica(id paxi.ID) *Replica {
 	ssThreshold := *opaxosThreshold
 	roles := strings.Split(*opaxosRoles, ",")
+	algorithm := *opaxosAlgorithm
 
 	log.Debugf("instantiating a replica with role=%v", roles)
 
 	r := new(Replica)
 	r.Node = paxi.NewNode(id)
-	r.OPaxos = NewOPaxos(r, ssThreshold, roles)
+	r.OPaxos = NewOPaxos(r, ssThreshold, algorithm, roles)
 
 	if r.OPaxos.IsProposer {
 		r.Register(paxi.Request{}, r.handleRequest)
@@ -51,5 +53,5 @@ func NewReplica(id paxi.ID) *Replica {
 
 func (r *Replica) handleRequest(m paxi.Request) {
 	log.Debugf("Replica %s received %v\n", r.ID(), m)
-	r.OPaxos.HandleRequest(m)
+	r.OPaxos.HandleRequest(m.ToGenericRequest())
 }

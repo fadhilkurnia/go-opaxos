@@ -4,7 +4,6 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/ailidani/paxi"
-	"time"
 )
 
 func init() {
@@ -27,19 +26,19 @@ func (m PrepareRequest) String() string {
 // PrepareResponse response of prepare (promise message),
 // sent from acceptor to proposer
 type PrepareResponse struct {
-	Ballot paxi.Ballot           // sender leader's node-id
-	ID     paxi.ID               // sender node-id
-	Log    map[int]CommandBallot // uncommitted logs
+	Ballot paxi.Ballot          // sender leader's node-id
+	ID     paxi.ID              // sender node-id
+	Log    map[int]CommandShare // uncommitted logs
 }
 
-type ClientCommand struct {
-	Command  []byte
-	ClientID paxi.ID
+type CommandShare struct {
+	Command []byte
+	Ballot  paxi.Ballot
 }
 
 // CommandBallot combines each command with its ballot number
 type CommandBallot struct {
-	Command ClientCommand
+	Command []byte
 	Ballot  paxi.Ballot
 }
 
@@ -52,8 +51,7 @@ func (m PrepareResponse) String() string {
 type ProposeRequest struct {
 	Ballot   paxi.Ballot
 	Slot     int
-	Command  ClientCommand
-	SendTime time.Time
+	Command  []byte
 }
 
 func (m ProposeRequest) String() string {
@@ -65,7 +63,6 @@ type ProposeResponse struct {
 	Ballot   paxi.Ballot
 	ID       paxi.ID
 	Slot     int
-	SendTime time.Time
 }
 
 func (m ProposeResponse) String() string {
@@ -76,7 +73,6 @@ func (m ProposeResponse) String() string {
 type CommitRequest struct {
 	Ballot   paxi.Ballot
 	Slot     int
-	ClientID paxi.ID
 }
 
 func (m CommitRequest) String() string {

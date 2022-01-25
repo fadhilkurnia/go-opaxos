@@ -1,6 +1,7 @@
 package paxi
 
 import (
+	"bytes"
 	"encoding/gob"
 	"fmt"
 )
@@ -29,6 +30,12 @@ type Request struct {
 	c          chan Reply // reply channel created by request receiver
 }
 
+// GenericRequest is Request but with generic []bytes command
+type GenericRequest struct {
+	*Request
+	GenericCommand []byte
+}
+
 // Reply replies to current client session
 func (r *Request) Reply(reply Reply) {
 	r.c <- reply
@@ -38,7 +45,14 @@ func (r Request) String() string {
 	return fmt.Sprintf("Request {cmd=%v nid=%v}", r.Command, r.NodeID)
 }
 
-// Reply includes all info that might replies to back the client for the coresponding reqeust
+func (r *Request) ToGenericRequest() GenericRequest {
+	genericCmdBuff := bytes.Buffer{}
+	encoder := gob.NewEncoder(&genericCmdBuff)
+	encoder.Encode(r.Command)
+	return GenericRequest{r, genericCmdBuff.Bytes()}
+}
+
+// Reply includes all info that might reply to back the client for the coresponding reqeust
 type Reply struct {
 	Command    Command
 	Value      Value

@@ -364,6 +364,7 @@ func (p *Paxos) exec() {
 			reply.Properties[HTTPHeaderSlot] = strconv.Itoa(p.execute)
 			reply.Properties[HTTPHeaderBallot] = e.ballot.String()
 			reply.Properties[HTTPHeaderExecute] = strconv.Itoa(p.execute)
+			reply.Properties[HTTPHeaderEncodingTime] = "0"
 			e.request.Reply(reply)
 			e.request = nil
 		}

@@ -17,6 +17,7 @@ const (
 	HTTPHeaderBallot     = "Ballot"
 	HTTPHeaderExecute    = "Execute"
 	HTTPHeaderInProgress = "Inprogress"
+	HTTPHeaderEncodingTime = "Encoding"
 )
 
 // Replica for one Paxos instance
