@@ -1,4 +1,6 @@
 bin/*
+!bin/configs/
+!bin/*.sh
 !bin/*.sh
 !bin/*.py
 !bin/*.json

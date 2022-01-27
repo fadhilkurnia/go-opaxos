@@ -14,6 +14,9 @@ var configFile = flag.String("config", "config.json", "Configuration file for pa
 type Config struct {
 	Addrs     map[ID]string `json:"address"`      // address for node communication
 	HTTPAddrs map[ID]string `json:"http_address"` // address for client server communication
+	Roles     map[ID]string `json:"roles"`        // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
+
+	Protocol map[string]interface{} `json:"protocol"` // (used in OPaxos) consensus protocol used, and its configuration parameter
 
 	Policy    string  `json:"policy"`    // leader change policy {consecutive, majority}
 	Threshold float64 `json:"threshold"` // threshold for policy in WPaxos {n consecutive or time interval in ms}

@@ -20,25 +20,25 @@
         "1.4": "acceptor,learner",
         "1.5": "acceptor,learner"
     },
-    "algorithm": {
-        "type": "opaxos",
+    "protocol": {
+        "name": "opaxos",
         "secret_sharing": "shamir",
         "threshold": 2,
         "quorum_1": 4,
         "quorum_2": 3,
         "quorum_fast": 4
     },
-    "policy": "majority",
     "thrifty": false,
+    "policy": "majority",
     "chan_buffer_size": 1024,
     "buffer_size": 1024,
     "multiversion": false,
     "benchmark": {
-        "T": 10,
-        "N": 0,
-        "K": 100000,
+        "T": 0,
+        "N": 100000,
+        "K": 9,
         "W": 1.0,
-        "Throttle": 1,
+        "Throttle": 0,
         "Concurrency": 1,
         "Distribution": "uniform",
         "LinearizabilityCheck": false,

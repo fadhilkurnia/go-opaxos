@@ -1,15 +1,10 @@
 package opaxos
 
 import (
-	"flag"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"strings"
 )
-
-var opaxosAlgorithm = flag.String("opaxos_alg", AlgShamir, "secret-sharing algorithm: [shamir, ssms]")
-var opaxosThreshold = flag.Int("opaxos_k", 2, "minimum number of shares to reconstruct a secret")
-var opaxosRoles = flag.String("opaxos_roles", "proposer,acceptor,learner", "the roles of this server, separated by comma.")
 
 const (
 	HTTPHeaderSlot         = "Slot"
@@ -25,15 +20,17 @@ type Replica struct {
 }
 
 func NewReplica(id paxi.ID) *Replica {
-	ssThreshold := *opaxosThreshold
-	roles := strings.Split(*opaxosRoles, ",")
-	algorithm := *opaxosAlgorithm
+	// parse paxi config to opaxos config
+	globalCfg := paxi.GetConfig()
+	cfg := InitConfig(&globalCfg)
+	roles := strings.Split(globalCfg.Roles[id], ",")
 
 	log.Debugf("instantiating a replica with role=%v", roles)
+	log.Debugf("config: %v", cfg)
 
 	r := new(Replica)
 	r.Node = paxi.NewNode(id)
-	r.OPaxos = NewOPaxos(r, ssThreshold, algorithm, roles)
+	r.OPaxos = NewOPaxos(r, &cfg)
 
 	if r.OPaxos.IsProposer {
 		r.Register(paxi.Request{}, r.handleRequest)
