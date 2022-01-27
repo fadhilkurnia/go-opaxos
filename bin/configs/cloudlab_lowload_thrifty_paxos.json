@@ -21,14 +21,9 @@
     "1.5": "acceptor,learner"
   },
   "protocol": {
-    "name": "opaxos",
-    "secret_sharing": "shamir",
-    "threshold": 2,
-    "quorum_1": 4,
-    "quorum_2": 3,
-    "quorum_fast": 4
+    "name": "paxos"
   },
-  "thrifty": false,
+  "thrifty": true,
   "policy": "majority",
   "chan_buffer_size": 1024,
   "buffer_size": 1024,
