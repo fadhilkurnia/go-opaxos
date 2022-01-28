@@ -32,8 +32,9 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Node = paxi.NewNode(id)
 	r.OPaxos = NewOPaxos(r, &cfg)
 
+	r.Register(paxi.Request{}, r.handleRequest)
+
 	if r.OPaxos.IsProposer {
-		r.Register(paxi.Request{}, r.handleRequest)
 		r.Register(PrepareResponse{}, r.HandlePrepareResponse)
 		r.Register(ProposeResponse{}, r.HandleProposeResponse)
 	}

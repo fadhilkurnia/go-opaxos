@@ -2,6 +2,7 @@ package opaxos
 
 import (
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/log"
 	"strings"
 	"time"
 )
@@ -104,6 +105,10 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 
 // HandleRequest handles request and start phase 1 or phase 2
 func (op *OPaxos) HandleRequest(r paxi.GenericRequest) {
+	if !op.IsProposer {
+		log.Debugf("non-proposer node %v receiving user request", op.ID())
+		return
+	}
 	if !op.IsLeader {
 		op.requests = append(op.requests, &r)
 
