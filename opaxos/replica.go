@@ -51,5 +51,6 @@ func NewReplica(id paxi.ID) *Replica {
 
 func (r *Replica) handleRequest(m paxi.Request) {
 	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	// TODO: make a generic client in paxi that accept []byte as command
 	r.OPaxos.HandleRequest(m.ToGenericRequest())
 }

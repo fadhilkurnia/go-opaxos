@@ -48,7 +48,7 @@ func (r Request) String() string {
 func (r *Request) ToGenericRequest() GenericRequest {
 	genericCmdBuff := bytes.Buffer{}
 	encoder := gob.NewEncoder(&genericCmdBuff)
-	encoder.Encode(r.Command)
+	_ = encoder.Encode(r.Command)
 	return GenericRequest{r, genericCmdBuff.Bytes()}
 }
 

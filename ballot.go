@@ -8,7 +8,7 @@ import (
 	"github.com/ailidani/paxi/log"
 )
 
-// Ballot is ballot number type combines 32 bits of natual number and 32 bits of node id into uint64
+// Ballot is ballot number type combines 32 bits of natural number and 32 bits of node id into uint64
 type Ballot uint64
 
 // NewBallot generates ballot number in format <n, zone, node>

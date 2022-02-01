@@ -17,45 +17,32 @@ func (op *OPaxos) Prepare() {
 	op.quorum.Reset()
 	op.quorum.ACK(op.ID())
 
-	if paxi.GetConfig().Thrifty {
-		op.MulticastQuorum(op.nQuorum1, PrepareRequest{Ballot: op.ballot})
-	} else {
-		op.Broadcast(PrepareRequest{Ballot: op.ballot})
-	}
+	op.Broadcast(PrepareRequest{Ballot: op.ballot})
 }
 
 // Propose initiates phase 2 of opaxos
 func (op *OPaxos) Propose(r *paxi.GenericRequest) {
-	// secret shared the command
-	ssCommand, encodingDuration, err := op.secretSharesCommand(r.GenericCommand)
+	// secret-shared the command
+	ssCommand, encodingTime, err := op.secretSharesCommand(r.GenericCommand)
 	if err != nil {
 		log.Errorf("failed to secret share command %v", err)
 		return
 	}
 
 	op.slot++
-
-	commandShares := make([]CommandShare, len(ssCommand))
-	for i := 0; i < len(ssCommand); i++ {
-		commandShares[i] = CommandShare{
-			Command: ssCommand[i],
-			Ballot:  op.ballot,
-		}
-	}
-
 	op.log[op.slot] = &entry{
-		ballot:        op.ballot,
-		command:       r.GenericCommand,
-		commandShares: commandShares,
-		request:       r,
-		quorum:        paxi.NewQuorum(),
-		timestamp:     time.Now(),
-		encodingTime:  *encodingDuration,
+		ballot:       op.ballot,
+		command:      r.GenericCommand,
+		clearCommand: &r.Command,
+		request:      r,
+		quorum:       paxi.NewQuorum(),
+		timestamp:    time.Now(),
+		encodingTime: encodingTime,
 	}
 	op.log[op.slot].quorum.ACK(op.ID())
 
-	// TODO: broadcast clear message to other proposer, secret shared message to learner
-	// for now we are sending secret shared only
+	// TODO: broadcast clear message to trusted acceptors, secret-shared message to untrusted acceptors
+	// for now we are sending secret-shared only
 	proposeRequests := make([]interface{}, len(ssCommand))
 	for i := 0; i < len(ssCommand); i++ {
 		proposeRequests[i] = ProposeRequest{
@@ -65,34 +52,46 @@ func (op *OPaxos) Propose(r *paxi.GenericRequest) {
 		}
 	}
 
-	if paxi.GetConfig().Thrifty {
-		op.MulticastQuorumUniqueMessage(op.nQuorum2, proposeRequests)
+	// broadcast propose message to the acceptors
+	if op.config.Thrifty {
+		op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2, proposeRequests)
 	} else {
 		op.MulticastUniqueMessage(proposeRequests)
 	}
+
+	// TODO: store secret-shared commands for backup
+	//commandShares := make([]*CommandShare, len(ssCommand))
+	//for i := 0; i < len(ssCommand); i++ {
+	//	commandShares[i] = &CommandShare{
+	//		Ballot:  op.ballot,
+	//		Command: ssCommand[i],
+	//	}
+	//}
+	//op.log[op.slot].commandShares = commandShares
+	// TODO: decode []byte command become a struct
 }
 
-func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, *time.Duration, error) {
+func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) {
 	var err error
 	var secretShares [][]byte
 
 	s := time.Now()
 
 	if op.algorithm == AlgShamir {
-		if paxi.GetConfig().Thrifty {
-			secretShares, err = shamir.Split(cmdBytes, op.nQuorum2, op.K)
+		if op.config.Thrifty {
+			secretShares, err = shamir.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
 		} else {
 			secretShares, err = shamir.Split(cmdBytes, op.N-1, op.K)
 		}
 	} else if op.algorithm == AlgSSMS {
-		if paxi.GetConfig().Thrifty {
-			secretShares, err = krawczyk.Split(cmdBytes, op.nQuorum2, op.K)
+		if op.config.Thrifty {
+			secretShares, err = krawczyk.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
 		} else {
 			secretShares, err = krawczyk.Split(cmdBytes, op.N-1, op.K)
 		}
 	} else {
-		nShares := op.nQuorum2
-		if !paxi.GetConfig().Thrifty {
+		nShares := op.config.Protocol.Quorum2 - 1
+		if !op.config.Thrifty {
 			nShares = op.N - 1
 		}
 		secretShares = make([][]byte, nShares)
@@ -105,17 +104,19 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, *time.Duration
 
 	if err != nil {
 		log.Errorf("failed to split secret %v\n", err)
-		return nil, nil, err
+		return nil, 0, err
 	}
 
 	log.Debugf("cmd length: before=%d, after=%d. processing-time=%v, #N=%d, #k=%d", len(cmdBytes), len(secretShares[0]), ssTime, op.N-1, op.K)
 
-	return secretShares, &ssTime, nil
+	return secretShares, ssTime.Nanoseconds(), nil
 }
 
 func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 	// update log, store the cmdShares for reconstruction, if necessary.
-	op.updateLog(m.Log)
+	if len(m.Log) > 0 {
+		op.updateLog(m.Log)
+	}
 
 	// handle old message from the previous leadership
 	if m.Ballot < op.ballot || op.IsLeader {
@@ -133,13 +134,15 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 	if m.Ballot == op.ballot && m.Ballot.ID() == op.ID() {
 		op.quorum.ACK(m.ID)
 
+		// phase-1 quorum is fulfilled, this proposer is a leader now
 		if op.Q1(op.quorum) {
 			op.IsLeader = true
 
 			// propose any uncommitted entries
 			for i := op.execute; i <= op.slot; i++ {
-				// ignore nil gap or committed log
-				// TODO: need to propose nil value as well
+
+				// TODO: propose value only if the previous slot is already committed
+				// for now we are ignoring a nil gap
 				if op.log[i] == nil || op.log[i].commit {
 					continue
 				}
@@ -149,10 +152,11 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 
 				var ssCommands [][]byte
 
-				// check if there are previously accepted command-shares in this slot, proposed by different leader
-				if len(op.log[i].commandShares) > 0 && op.log[i].ballot != op.ballot {
+				// check if there are previously accepted command-shares in this slot,
+				// proposed by different leader
+				if len(op.log[i].commandShares) > 0 {
 					// if there are less than K command-shares, we can ignore them, reset the shares.
-					// if there are more than or exactly K command share, we need to reconstruct them
+					// but if there are more than or exactly K command-shares, we try to reconstruct them
 					if len(op.log[i].commandShares) >= op.K {
 						// get K command-shares with the biggest ballot number
 						ballotShares := map[paxi.Ballot][][]byte{}
@@ -179,25 +183,26 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 						}
 						op.log[i].command = reconstructedCmd
 					}
-					op.log[i].commandShares = []CommandShare{}
+					op.log[i].commandShares = make([]*CommandShare, 0)
 				}
 
 				// regenerate secret-shares, if empty
+				// TODO: regenerate the command, but do the secret-sharing in Propose method instead
 				if len(op.log[i].commandShares) == 0 {
-					newSSCommands, encDuration, err := op.secretSharesCommand(op.log[i].command)
+					newSSCommands, encodingTime, err := op.secretSharesCommand(op.log[i].command)
 					if err != nil {
 						log.Errorf("failed to secret share command %v", err)
 						continue
 					}
-					commandShares := make([]CommandShare, len(newSSCommands))
-					for i := 0; i < len(newSSCommands); i++ {
-						commandShares[i] = CommandShare{
-							Command: newSSCommands[i],
+					commandShares := make([]*CommandShare, len(newSSCommands))
+					for j := 0; j < len(newSSCommands); j++ {
+						commandShares[j] = &CommandShare{
+							Command: newSSCommands[j],
 							Ballot:  op.ballot,
 						}
 					}
 					op.log[i].commandShares = commandShares
-					op.log[i].encodingTime = *encDuration
+					op.log[i].encodingTime = encodingTime
 					ssCommands = newSSCommands
 				}
 
@@ -230,13 +235,13 @@ func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {
 		if e, exist := op.log[slot]; exist {
 			if !e.commit && cmdShare.Ballot > e.ballot {
 				e.ballot = cmdShare.Ballot
-				e.commandShares = append(e.commandShares, cmdShare)
+				e.commandShares = append(e.commandShares, &cmdShare)
 			}
 		} else {
 			op.log[slot] = &entry{
 				ballot:        cmdShare.Ballot,
-				command:       cmdShare.Command,
-				commandShares: []CommandShare{cmdShare},
+				command:       cmdShare.Command, // TODO: only do this if the acceptor is also a proposer
+				commandShares: []*CommandShare{&cmdShare},
 				commit:        false,
 			}
 		}
@@ -250,7 +255,7 @@ func (op *OPaxos) HandleProposeResponse(m ProposeResponse) {
 		return
 	}
 
-	//log.Infof("for slot=%d, time until received by leader %v", m.Slot, time.Since(m.SendTime))
+	// log.Infof("for slot=%d, time until received by leader %v", m.Slot, time.Since(m.SendTime))
 
 	// yield to other proposer with higher ballot number
 	if m.Ballot > op.ballot {

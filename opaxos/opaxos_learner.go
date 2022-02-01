@@ -31,26 +31,32 @@ func (op *OPaxos) exec() {
 
 		// only learner that also a proposer that can execute the command
 		value := paxi.Value{}
-		var cmd paxi.Command
+		var cmd *paxi.Command
 		if op.IsLearner && op.IsProposer {
-			decoder := gob.NewDecoder(bytes.NewReader(e.command))
-			if err := decoder.Decode(&cmd); err != nil {
-				log.Errorf("failed to decode user's command: %v", err)
-				break
+			if e.clearCommand == nil {
+				decoder := gob.NewDecoder(bytes.NewReader(e.command))
+				decodedCmd := paxi.Command{}
+				if err := decoder.Decode(&decodedCmd); err != nil {
+					log.Errorf("failed to decode user's command: %v", err)
+					continue
+				}
+				value = op.Execute(decodedCmd)
+			} else {
+				cmd = e.clearCommand
+				value = op.Execute(*e.clearCommand)
 			}
-			value = op.Execute(cmd)
 		}
 
 		if e.request != nil {
 			reply := paxi.Reply{
-				Command:    cmd,
+				Command:    *cmd,
 				Value:      value,
 				Properties: make(map[string]string),
 			}
 			reply.Properties[HTTPHeaderSlot] = strconv.Itoa(op.execute)
 			reply.Properties[HTTPHeaderBallot] = e.ballot.String()
 			reply.Properties[HTTPHeaderExecute] = strconv.Itoa(op.execute)
-			reply.Properties[HTTPHeaderEncodingTime] = strconv.FormatInt(e.encodingTime.Nanoseconds(), 10)
+			reply.Properties[HTTPHeaderEncodingTime] = strconv.FormatInt(e.encodingTime, 10)
 			e.request.Reply(reply)
 			e.request = nil
 			//log.Infof("slot=%d time from received until executed %v", op.execute, time.Since(e.timestamp))

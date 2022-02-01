@@ -31,15 +31,10 @@ type PrepareResponse struct {
 	Log    map[int]CommandShare // uncommitted logs
 }
 
+// CommandShare combines each secret-shared command with its ballot number
 type CommandShare struct {
-	Command []byte
 	Ballot  paxi.Ballot
-}
-
-// CommandBallot combines each command with its ballot number
-type CommandBallot struct {
 	Command []byte
-	Ballot  paxi.Ballot
 }
 
 func (m PrepareResponse) String() string {
@@ -49,9 +44,9 @@ func (m PrepareResponse) String() string {
 // ProposeRequest propose message from proposer to acceptor in Phase 2
 // accept message.
 type ProposeRequest struct {
-	Ballot   paxi.Ballot
-	Slot     int
-	Command  []byte
+	Ballot  paxi.Ballot
+	Slot    int
+	Command []byte
 }
 
 func (m ProposeRequest) String() string {
@@ -60,9 +55,9 @@ func (m ProposeRequest) String() string {
 
 // ProposeResponse response of propose message, sent from acceptor to proposer
 type ProposeResponse struct {
-	Ballot   paxi.Ballot
-	ID       paxi.ID
-	Slot     int
+	Ballot paxi.Ballot
+	Slot   int
+	ID     paxi.ID // the acceptor's id
 }
 
 func (m ProposeResponse) String() string {
@@ -71,8 +66,8 @@ func (m ProposeResponse) String() string {
 
 // CommitRequest message issued by proposer/leader to persist a previously accepted value
 type CommitRequest struct {
-	Ballot   paxi.Ballot
-	Slot     int
+	Ballot paxi.Ballot
+	Slot   int
 }
 
 func (m CommitRequest) String() string {

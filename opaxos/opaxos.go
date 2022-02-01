@@ -9,14 +9,16 @@ import (
 
 // entry in log
 type entry struct {
-	ballot        paxi.Ballot
-	command       []byte               // clear or secret shared command
-	commit        bool                 // commit indicates whether this entry is already committed or not
-	request       *paxi.GenericRequest // each request has reply channel, so we need to store it
-	quorum        *paxi.Quorum
-	timestamp     time.Time
-	encodingTime  time.Duration
-	commandShares []CommandShare // collection of client-command from acceptors, with the same slot number
+	ballot       paxi.Ballot
+	command      []byte               // clear or secret shared command in []bytes
+	clearCommand *paxi.Command        // clear command
+	commit       bool                 // commit indicates whether this entry is already committed or not
+	request      *paxi.GenericRequest // each request has reply channel, so we need to store it
+	quorum       *paxi.Quorum
+	timestamp    time.Time
+
+	encodingTime  int64           // encodingTime in ns
+	commandShares []*CommandShare // collection of client-command from acceptors, with the same slot number
 }
 
 // OPaxos instance
@@ -39,10 +41,6 @@ type OPaxos struct {
 
 	quorum   *paxi.Quorum           // quorum store all ack'd responses
 	requests []*paxi.GenericRequest // phase 1 pending requests
-
-	nQuorum1    int
-	nQuorum2    int
-	nQuorumFast int
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -71,6 +69,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		algorithm:       cfg.Protocol.SecretSharing,
 		log:             make(map[int]*entry, paxi.GetConfig().BufferSize),
 		slot:            -1,
+		execute:         0,
 		quorum:          paxi.NewQuorum(),
 		requests:        make([]*paxi.GenericRequest, 0),
 		K:               cfg.Protocol.Threshold,
@@ -78,8 +77,6 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
 		Q2:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum2) },
 		ReplyWhenCommit: false,
-		nQuorum1:        cfg.Protocol.Quorum1,
-		nQuorum2:        cfg.Protocol.Quorum2,
 	}
 	roles := strings.Split(cfg.Roles[n.ID()], ",")
 
@@ -106,7 +103,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 // HandleRequest handles request and start phase 1 or phase 2
 func (op *OPaxos) HandleRequest(r paxi.GenericRequest) {
 	if !op.IsProposer {
-		log.Debugf("non-proposer node %v receiving user request", op.ID())
+		log.Warningf("non-proposer node %v receiving user request, ignoring it", op.ID())
 		return
 	}
 	if !op.IsLeader {

@@ -17,7 +17,7 @@ func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
 		if op.log[s] == nil || op.log[s].commit {
 			continue
 		}
-		l[s] = CommandShare{op.log[s].command, op.log[s].ballot}
+		l[s] = CommandShare{op.log[s].ballot, op.log[s].command}
 	}
 
 	// Send PrepareResponse back to proposer / leader
@@ -36,7 +36,7 @@ func (op *OPaxos) HandleProposeRequest(m ProposeRequest) {
 		op.ballot = m.Ballot
 		op.IsLeader = false
 
-		//log.Infof("message slot=%v acked after %v\n", m.Slot, time.Since(m.SendTime))
+		// log.Infof("message slot=%v acked after %v\n", m.Slot, time.Since(m.SendTime))
 
 		// update slot number
 		op.slot = paxi.Max(op.slot, m.Slot)
