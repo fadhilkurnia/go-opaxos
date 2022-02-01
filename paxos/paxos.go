@@ -15,7 +15,6 @@ type entry struct {
 	commit    bool
 	request   *paxi.Request
 	quorum    *paxi.Quorum
-	timestamp time.Time
 }
 
 // Paxos instance
@@ -117,7 +116,6 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		command:   r.Command,
 		request:   r,
 		quorum:    paxi.NewQuorum(),
-		timestamp: time.Now(),
 	}
 	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
@@ -352,7 +350,6 @@ func (p *Paxos) exec() {
 		if !ok || !e.commit {
 			break
 		}
-		log.Infof("%d time from created until executed %v", p.execute, time.Since(e.timestamp))
 		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
 		value := p.Execute(e.command)
 		if e.request != nil {
