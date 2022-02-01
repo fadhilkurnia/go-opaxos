@@ -54,7 +54,7 @@ func (op *OPaxos) Propose(r *paxi.GenericRequest) {
 
 	// broadcast propose message to the acceptors
 	if op.config.Thrifty {
-		op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2, proposeRequests)
+		op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2-1, proposeRequests)
 	} else {
 		op.MulticastUniqueMessage(proposeRequests)
 	}
@@ -85,7 +85,12 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 		}
 	} else if op.algorithm == AlgSSMS {
 		if op.config.Thrifty {
-			secretShares, err = krawczyk.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
+			// in krawczyk, nShares - K > 0
+			nShares := op.config.Protocol.Quorum2-1
+			if nShares - op.K == 0 {
+				nShares += 1
+			}
+			secretShares, err = krawczyk.Split(cmdBytes, nShares, op.K)
 		} else {
 			secretShares, err = krawczyk.Split(cmdBytes, op.N-1, op.K)
 		}
