@@ -23,7 +23,7 @@ type Client interface {
 	Put2(Key, Value) (interface{}, error)
 }
 
-// AdminClient interface provides fault injection opeartion
+// AdminClient interface provides fault injection operation
 type AdminClient interface {
 	Consensus(Key) bool
 	Crash(ID, int)
@@ -31,7 +31,7 @@ type AdminClient interface {
 	Partition(int, ...ID)
 }
 
-// HTTPClient inplements Client interface with REST API
+// HTTPClient implements Client interface with REST API
 type HTTPClient struct {
 	Addrs  map[ID]string
 	HTTP   map[ID]string

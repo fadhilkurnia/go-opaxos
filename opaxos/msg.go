@@ -7,25 +7,25 @@ import (
 )
 
 func init() {
-	gob.Register(PrepareRequest{})
-	gob.Register(PrepareResponse{})
-	gob.Register(ProposeRequest{})
-	gob.Register(ProposeResponse{})
-	gob.Register(CommitRequest{})
+	gob.Register(P1a{})
+	gob.Register(P1b{})
+	gob.Register(P2a{})
+	gob.Register(P2b{})
+	gob.Register(P3{})
 }
 
-// PrepareRequest prepare message from proposer to acceptor
-type PrepareRequest struct {
+// P1a prepare message from proposer to acceptor
+type P1a struct {
 	Ballot paxi.Ballot
 }
 
-func (m PrepareRequest) String() string {
-	return fmt.Sprintf("PrepareRequest {b=%v}", m.Ballot)
+func (m P1a) String() string {
+	return fmt.Sprintf("P1a {b=%v}", m.Ballot)
 }
 
-// PrepareResponse response of prepare (promise message),
+// P1b response of prepare (promise message),
 // sent from acceptor to proposer
-type PrepareResponse struct {
+type P1b struct {
 	Ballot paxi.Ballot          // sender leader's node-id
 	ID     paxi.ID              // sender node-id
 	Log    map[int]CommandShare // uncommitted logs
@@ -37,39 +37,39 @@ type CommandShare struct {
 	Command []byte
 }
 
-func (m PrepareResponse) String() string {
-	return fmt.Sprintf("PrepareResponse {b=%v id=%s log=%v}", m.Ballot, m.ID, m.Log)
+func (m P1b) String() string {
+	return fmt.Sprintf("P1b {b=%v id=%s log=%v}", m.Ballot, m.ID, m.Log)
 }
 
-// ProposeRequest propose message from proposer to acceptor in Phase 2
+// P2a propose message from proposer to acceptor in Phase 2
 // accept message.
-type ProposeRequest struct {
+type P2a struct {
 	Ballot  paxi.Ballot
 	Slot    int
 	Command []byte
 }
 
-func (m ProposeRequest) String() string {
-	return fmt.Sprintf("ProposeRequest {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
+func (m P2a) String() string {
+	return fmt.Sprintf("P2a {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
 }
 
-// ProposeResponse response of propose message, sent from acceptor to proposer
-type ProposeResponse struct {
+// P2b response of propose message, sent from acceptor to proposer
+type P2b struct {
 	Ballot paxi.Ballot
 	Slot   int
 	ID     paxi.ID // the acceptor's id
 }
 
-func (m ProposeResponse) String() string {
-	return fmt.Sprintf("ProposeResponse {b=%v id=%s s=%d}", m.Ballot, m.ID, m.Slot)
+func (m P2b) String() string {
+	return fmt.Sprintf("P2b {b=%v id=%s s=%d}", m.Ballot, m.ID, m.Slot)
 }
 
-// CommitRequest message issued by proposer/leader to persist a previously accepted value
-type CommitRequest struct {
+// P3 message issued by proposer/leader to persist a previously accepted value
+type P3 struct {
 	Ballot paxi.Ballot
 	Slot   int
 }
 
-func (m CommitRequest) String() string {
-	return fmt.Sprintf("CommitRequest {b=%v s=%d}", m.Ballot, m.Slot)
+func (m P3) String() string {
+	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
 }

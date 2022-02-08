@@ -8,6 +8,7 @@ import (
 
 func init() {
 	gob.Register(Request{})
+	gob.Register(BytesRequest{})
 	gob.Register(Reply{})
 	gob.Register(Read{})
 	gob.Register(ReadReply{})
@@ -36,6 +37,15 @@ type GenericRequest struct {
 	GenericCommand []byte
 }
 
+// BytesRequest is Request but with arbitrary []bytes command
+type BytesRequest struct {
+	Timestamp  int64
+	NodeID     ID
+	c          chan Reply
+	Properties map[string]string
+	Command    BytesCommand
+}
+
 // Reply replies to current client session
 func (r *Request) Reply(reply Reply) {
 	r.c <- reply
@@ -52,7 +62,15 @@ func (r *Request) ToGenericRequest() GenericRequest {
 	return GenericRequest{r, genericCmdBuff.Bytes()}
 }
 
-// Reply includes all info that might reply to back the client for the coresponding reqeust
+func (r *BytesRequest) Reply(reply Reply) {
+	r.c <- reply
+}
+
+func (r *BytesRequest) String() string {
+	return fmt.Sprintf("BytesRequest {nid=%v cmd=%v}", r.Command, r.NodeID)
+}
+
+// Reply includes all info that might reply to back the client for the corresponding request
 type Reply struct {
 	Command    Command
 	Value      Value

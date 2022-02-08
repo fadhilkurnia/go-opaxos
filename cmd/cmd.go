@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/ailidani/paxi/opaxos"
 	"os"
 	"strconv"
 	"strings"
@@ -115,6 +116,9 @@ func main() {
 
 	case "chain":
 		client = chain.NewClient()
+
+	case "opaxos":
+		client = opaxos.NewClient(paxi.ID(*id))
 
 	default:
 		client = paxi.NewHTTPClient(paxi.ID(*id))

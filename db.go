@@ -8,7 +8,6 @@ import (
 )
 
 // Key type of the key-value database
-// TODO key should be general too
 type Key int
 
 // Value type of key-value database
@@ -30,7 +29,7 @@ func (c Command) Empty() bool {
 }
 
 func (c Command) IsRead() bool {
-	return c.Value == nil
+	return len(c.Value) == 0
 }
 
 func (c Command) IsWrite() bool {
@@ -45,7 +44,7 @@ func (c Command) String() string {
 	if c.Value == nil {
 		return fmt.Sprintf("Get{key=%v id=%s cid=%d}", c.Key, c.ClientID, c.CommandID)
 	}
-	return fmt.Sprintf("Put{key=%v value=%x id=%s cid=%d", c.Key, c.Value, c.ClientID, c.CommandID)
+	return fmt.Sprintf("Put{key=%v value=%v id=%s cid=%d}", c.Key, c.Value, c.ClientID, c.CommandID)
 }
 
 // Database defines a database interface
@@ -66,7 +65,7 @@ type database struct {
 	history      map[Key][]Value
 }
 
-// NewDatabase returns database that impelements Database interface
+// NewDatabase returns database that implements Database interface
 func NewDatabase() Database {
 	return &database{
 		data:         make(map[Key]Value),
@@ -99,7 +98,7 @@ func (d *database) Execute(c interface{}) interface{} {
 }
 */
 
-// Execute executes a command agaist database
+// Execute executes a command against database
 func (d *database) Execute(c Command) Value {
 	d.Lock()
 	defer d.Unlock()

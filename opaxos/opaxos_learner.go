@@ -1,14 +1,12 @@
 package opaxos
 
 import (
-	"bytes"
-	"encoding/gob"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"strconv"
 )
 
-func (op *OPaxos) HandleCommitRequest(m CommitRequest) {
+func (op *OPaxos) HandleCommitRequest(m P3) {
 	op.slot = paxi.Max(op.slot, m.Slot)
 
 	// TODO: tell the leader if the slot is empty
@@ -31,25 +29,15 @@ func (op *OPaxos) exec() {
 
 		// only learner that also a proposer that can execute the command
 		value := paxi.Value{}
-		var cmd *paxi.Command
+		var cmd paxi.Command
 		if op.IsLearner && op.IsProposer {
-			if e.clearCommand == nil {
-				decoder := gob.NewDecoder(bytes.NewReader(e.command))
-				decodedCmd := paxi.Command{}
-				if err := decoder.Decode(&decodedCmd); err != nil {
-					log.Errorf("failed to decode user's command: %v", err)
-					continue
-				}
-				value = op.Execute(decodedCmd)
-			} else {
-				cmd = e.clearCommand
-				value = op.Execute(*e.clearCommand)
-			}
+			cmd = e.command.ToCommand()
+			value = op.Execute(cmd)
+			log.Debugf("cmd=%v , value=%s", cmd, value)
 		}
 
 		if e.request != nil {
 			reply := paxi.Reply{
-				Command:    *cmd,
 				Value:      value,
 				Properties: make(map[string]string),
 			}

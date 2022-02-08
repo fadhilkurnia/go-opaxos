@@ -24,6 +24,7 @@ const (
 func (n *node) http() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", n.handleRoot)
+	mux.HandleFunc("/b", n.handleBytesRequest)
 	mux.HandleFunc("/history", n.handleHistory)
 	mux.HandleFunc("/crash", n.handleCrash)
 	mux.HandleFunc("/drop", n.handleDrop)
@@ -88,7 +89,7 @@ func (n *node) handleRoot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot read body", http.StatusBadRequest)
 			return
 		}
-		json.Unmarshal(body, &cmd)
+		_ = json.Unmarshal(body, &cmd)
 	}
 
 	req.Command = cmd
@@ -106,12 +107,60 @@ func (n *node) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// set all http headers
-	w.Header().Set(HTTPClientID, string(reply.Command.ClientID))
-	w.Header().Set(HTTPCommandID, strconv.Itoa(reply.Command.CommandID))
 	for k, v := range reply.Properties {
 		w.Header().Set(k, v)
 	}
 
+	_, err = io.WriteString(w, string(reply.Value))
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+// this endpoint (/b) only accept PUT or POST http request
+func (n *node) handleBytesRequest(w http.ResponseWriter, r *http.Request) {
+	var req BytesRequest
+
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		http.Error(w, "unknown handler for this http method", http.StatusBadRequest)
+		log.Error("unknown handler for this http method")
+		return
+	}
+
+	// get all http headers
+	req.Properties = make(map[string]string)
+	for k := range r.Header {
+		req.Properties[k] = r.Header.Get(k)
+	}
+
+	// read the payload (command)
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Error("error reading body: ", err)
+		http.Error(w, "cannot read body", http.StatusBadRequest)
+		return
+	}
+
+	req.Command = body
+	req.Timestamp = time.Now().Unix()
+	req.NodeID = n.id
+	req.c = make(chan Reply, 1)
+
+	// send request to replica, wait for the response
+	n.MessageChan <- req
+	reply := <-req.c
+
+	if reply.Err != nil {
+		http.Error(w, reply.Err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// set all http headers
+	for k, v := range reply.Properties {
+		w.Header().Set(k, v)
+	}
+
+	// send the response
 	_, err = io.WriteString(w, string(reply.Value))
 	if err != nil {
 		log.Error(err)
@@ -123,7 +172,7 @@ func (n *node) handleHistory(w http.ResponseWriter, r *http.Request) {
 	k, err := strconv.Atoi(r.URL.Query().Get("key"))
 	if err != nil {
 		log.Error(err)
-		http.Error(w, "invalide key", http.StatusBadRequest)
+		http.Error(w, "invalid key", http.StatusBadRequest)
 		return
 	}
 	h := n.Database.History(Key(k))

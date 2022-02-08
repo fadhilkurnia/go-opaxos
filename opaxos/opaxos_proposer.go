@@ -17,13 +17,13 @@ func (op *OPaxos) Prepare() {
 	op.quorum.Reset()
 	op.quorum.ACK(op.ID())
 
-	op.Broadcast(PrepareRequest{Ballot: op.ballot})
+	op.Broadcast(P1a{Ballot: op.ballot})
 }
 
 // Propose initiates phase 2 of opaxos
-func (op *OPaxos) Propose(r *paxi.GenericRequest) {
+func (op *OPaxos) Propose(r *paxi.BytesRequest) {
 	// secret-shared the command
-	ssCommand, encodingTime, err := op.secretSharesCommand(r.GenericCommand)
+	ssCommand, encodingTime, err := op.secretSharesCommand(r.Command)
 	if err != nil {
 		log.Errorf("failed to secret share command %v", err)
 		return
@@ -32,8 +32,7 @@ func (op *OPaxos) Propose(r *paxi.GenericRequest) {
 	op.slot++
 	op.log[op.slot] = &entry{
 		ballot:       op.ballot,
-		command:      r.GenericCommand,
-		clearCommand: &r.Command,
+		command:      r.Command,
 		request:      r,
 		quorum:       paxi.NewQuorum(),
 		timestamp:    time.Now(),
@@ -45,7 +44,7 @@ func (op *OPaxos) Propose(r *paxi.GenericRequest) {
 	// for now we are sending secret-shared only
 	proposeRequests := make([]interface{}, len(ssCommand))
 	for i := 0; i < len(ssCommand); i++ {
-		proposeRequests[i] = ProposeRequest{
+		proposeRequests[i] = P2a{
 			Ballot:  op.ballot,
 			Slot:    op.slot,
 			Command: ssCommand[i],
@@ -117,7 +116,7 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 	return secretShares, ssTime.Nanoseconds(), nil
 }
 
-func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
+func (op *OPaxos) HandlePrepareResponse(m P1b) {
 	// update log, store the cmdShares for reconstruction, if necessary.
 	if len(m.Log) > 0 {
 		op.updateLog(m.Log)
@@ -214,7 +213,7 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 				// TODO: broadcast clear message to other proposer, secret shared message to learner
 				proposeRequests := make([]interface{}, op.N-1)
 				for i := 0; i < op.N-1; i++ {
-					proposeRequests[i] = ProposeRequest{
+					proposeRequests[i] = P2a{
 						Ballot:  op.ballot,
 						Slot:    i,
 						Command: ssCommands[i+1],
@@ -229,7 +228,7 @@ func (op *OPaxos) HandlePrepareResponse(m PrepareResponse) {
 			}
 
 			// reset new requests
-			op.requests = make([]*paxi.GenericRequest, 0)
+			op.requests = make([]*paxi.BytesRequest, 0)
 		}
 	}
 }
@@ -253,7 +252,7 @@ func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {
 	}
 }
 
-func (op *OPaxos) HandleProposeResponse(m ProposeResponse) {
+func (op *OPaxos) HandleProposeResponse(m P2b) {
 	// handle old message and committed command
 	e, exist := op.log[m.Slot]
 	if !exist || m.Ballot < e.ballot || e.commit {
@@ -272,7 +271,7 @@ func (op *OPaxos) HandleProposeResponse(m ProposeResponse) {
 		op.log[m.Slot].quorum.ACK(m.ID)
 		if op.Q2(op.log[m.Slot].quorum) {
 			op.log[m.Slot].commit = true
-			op.Broadcast(CommitRequest{
+			op.Broadcast(P3{
 				Ballot: m.Ballot,
 				Slot:   m.Slot,
 			})

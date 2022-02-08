@@ -2,7 +2,7 @@ package opaxos
 
 import "github.com/ailidani/paxi"
 
-func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
+func (op *OPaxos) HandlePrepareRequest(m P1a) {
 	// handle if there is a new leader with higher ballot number
 	// promise not to accept value with lower ballot
 	if m.Ballot > op.ballot {
@@ -20,15 +20,15 @@ func (op *OPaxos) HandlePrepareRequest(m PrepareRequest) {
 		l[s] = CommandShare{op.log[s].ballot, op.log[s].command}
 	}
 
-	// Send PrepareResponse back to proposer / leader
-	op.Send(m.Ballot.ID(), PrepareResponse{
+	// Send P1b back to proposer / leader
+	op.Send(m.Ballot.ID(), P1b{
 		Ballot: op.ballot,
 		ID:     op.ID(),
 		Log:    l,
 	})
 }
 
-func (op *OPaxos) HandleProposeRequest(m ProposeRequest) {
+func (op *OPaxos) HandleProposeRequest(m P2a) {
 
 	// TODO: handle if this is acceptor that also a proposer (clear command, instead of secret-shared command)
 
@@ -59,7 +59,7 @@ func (op *OPaxos) HandleProposeRequest(m ProposeRequest) {
 	}
 
 	// reply to proposer
-	op.Send(m.Ballot.ID(), ProposeResponse{
+	op.Send(m.Ballot.ID(), P2b{
 		Ballot: op.ballot,
 		Slot:   m.Slot,
 		ID:     op.ID(),

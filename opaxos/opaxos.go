@@ -10,10 +10,10 @@ import (
 // entry in log
 type entry struct {
 	ballot       paxi.Ballot
-	command      []byte               // clear or secret shared command in []bytes
-	clearCommand *paxi.Command        // clear command
-	commit       bool                 // commit indicates whether this entry is already committed or not
-	request      *paxi.GenericRequest // each request has reply channel, so we need to store it
+	command      paxi.BytesCommand  // clear or secret shared command in []bytes
+	clearCommand *paxi.Command      // clear command
+	commit       bool               // commit indicates whether this entry is already committed or not
+	request      *paxi.BytesRequest // each request has reply channel, so we need to store it
 	quorum       *paxi.Quorum
 	timestamp    time.Time
 
@@ -39,8 +39,8 @@ type OPaxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	quorum   *paxi.Quorum           // quorum store all ack'd responses
-	requests []*paxi.GenericRequest // phase 1 pending requests
+	quorum   *paxi.Quorum         // quorum store all ack'd responses
+	requests []*paxi.BytesRequest // phase 1 pending requests
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -71,7 +71,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		slot:            -1,
 		execute:         0,
 		quorum:          paxi.NewQuorum(),
-		requests:        make([]*paxi.GenericRequest, 0),
+		requests:        make([]*paxi.BytesRequest, 0),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
 		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
@@ -101,7 +101,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 }
 
 // HandleRequest handles request and start phase 1 or phase 2
-func (op *OPaxos) HandleRequest(r paxi.GenericRequest) {
+func (op *OPaxos) HandleRequest(r paxi.BytesRequest) {
 	if !op.IsProposer {
 		log.Warningf("non-proposer node %v receiving user request, ignoring it", op.ID())
 		return
