@@ -2,7 +2,6 @@ package opaxos
 
 import (
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/log"
 	"strconv"
 )
 
@@ -33,7 +32,7 @@ func (op *OPaxos) exec() {
 		if op.IsLearner && op.IsProposer {
 			cmd = e.command.ToCommand()
 			value = op.Execute(cmd)
-			log.Debugf("cmd=%v , value=%s", cmd, value)
+			//log.Debugf("cmd=%v , value=%x", cmd, value)
 		}
 
 		if e.request != nil {

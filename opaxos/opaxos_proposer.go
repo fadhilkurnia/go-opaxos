@@ -112,7 +112,7 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 		return nil, 0, err
 	}
 
-	log.Debugf("cmd length: before=%d, after=%d. processing-time=%v, #N=%d, #k=%d", len(cmdBytes), len(secretShares[0]), ssTime, op.N-1, op.K)
+	// log.Debugf("cmd length: before=%d, after=%d. processing-time=%v, #N=%d, #k=%d", len(cmdBytes), len(secretShares[0]), ssTime, op.N-1, op.K)
 
 	return secretShares, ssTime.Nanoseconds(), nil
 }

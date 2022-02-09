@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ailidani/paxi/lib"
 	"github.com/ailidani/paxi/log"
@@ -50,7 +51,13 @@ func NewHTTPClient(id ID) *HTTPClient {
 		N:      len(config.Addrs),
 		Addrs:  config.Addrs,
 		HTTP:   config.HTTPAddrs,
-		Client: &http.Client{},
+		Client: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns: 1000,
+				MaxIdleConnsPerHost: 1000,
+				IdleConnTimeout: 60 * time.Second,
+			},
+		},
 	}
 	if id != "" {
 		i := 0

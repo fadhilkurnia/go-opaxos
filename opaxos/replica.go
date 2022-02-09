@@ -51,11 +51,11 @@ func NewReplica(id paxi.ID) *Replica {
 }
 
 func (r *Replica) handleRequest(m paxi.Request) {
-	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	// log.Debugf("Replica %s received %v\n", r.ID(), m)
 	r.OPaxos.HandleRequest(m.ToBytesRequest())
 }
 
 func (r *Replica) handleByteRequest(m paxi.BytesRequest) {
-	log.Debugf("Replica %s received %v\n", r.ID(), m.Command.ToCommand())
+	// log.Debugf("Replica %s received %v\n", r.ID(), m.Command.ToCommand())
 	r.OPaxos.HandleRequest(m)
 }

@@ -44,7 +44,7 @@ func (c Command) String() string {
 	if c.Value == nil {
 		return fmt.Sprintf("Get{key=%v id=%s cid=%d}", c.Key, c.ClientID, c.CommandID)
 	}
-	return fmt.Sprintf("Put{key=%v value=%v id=%s cid=%d}", c.Key, c.Value, c.ClientID, c.CommandID)
+	return fmt.Sprintf("Put{key=%v value=%x id=%s cid=%d}", c.Key, c.Value, c.ClientID, c.CommandID)
 }
 
 // Database defines a database interface

@@ -107,6 +107,8 @@ func (n *node) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// set all http headers
+	w.Header().Set(HTTPClientID, string(reply.Command.ClientID))
+	w.Header().Set(HTTPCommandID, strconv.Itoa(reply.Command.CommandID))
 	for k, v := range reply.Properties {
 		w.Header().Set(k, v)
 	}
