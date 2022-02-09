@@ -33,6 +33,7 @@ func NewReplica(id paxi.ID) *Replica {
 	r.OPaxos = NewOPaxos(r, &cfg)
 
 	r.Register(paxi.BytesRequest{}, r.handleByteRequest)
+	r.Register(paxi.Request{}, r.handleRequest)
 
 	if r.OPaxos.IsProposer {
 		r.Register(P1b{}, r.HandlePrepareResponse)
@@ -49,11 +50,10 @@ func NewReplica(id paxi.ID) *Replica {
 	return r
 }
 
-//func (r *Replica) handleRequest(m paxi.Request) {
-//	log.Debugf("Replica %s received %v\n", r.ID(), m)
-//	// TODO: make a generic client in paxi that accept []byte as command
-//	r.OPaxos.HandleRequest(m.ToGenericRequest())
-//}
+func (r *Replica) handleRequest(m paxi.Request) {
+	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	r.OPaxos.HandleRequest(m.ToBytesRequest())
+}
 
 func (r *Replica) handleByteRequest(m paxi.BytesRequest) {
 	log.Debugf("Replica %s received %v\n", r.ID(), m.Command.ToCommand())

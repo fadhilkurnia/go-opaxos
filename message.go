@@ -62,6 +62,16 @@ func (r *Request) ToGenericRequest() GenericRequest {
 	return GenericRequest{r, genericCmdBuff.Bytes()}
 }
 
+func (r *Request) ToBytesRequest() BytesRequest {
+	return BytesRequest{
+		Timestamp: r.Timestamp,
+		NodeID: r.NodeID,
+		c: r.c,
+		Properties: r.Properties,
+		Command: r.Command.ToBytesCommand(),
+	}
+}
+
 func (r *BytesRequest) Reply(reply Reply) {
 	r.c <- reply
 }

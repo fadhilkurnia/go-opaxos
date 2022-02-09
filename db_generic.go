@@ -53,6 +53,16 @@ func (g *GenericCommand) ToBytesCommand() BytesCommand {
 	return b
 }
 
+func (c *Command) ToBytesCommand() BytesCommand {
+	b := make([]byte, 4+4+4+4+len(c.Value))
+	binary.BigEndian.PutUint32(b, uint32(c.CommandID))
+	binary.BigEndian.PutUint32(b[4:], uint32(4))
+	binary.BigEndian.PutUint32(b[8:], uint32(c.Key))
+	binary.BigEndian.PutUint32(b[12:], uint32(len(c.Value)))
+	copy(b[16:], c.Value)
+	return b
+}
+
 func (g *GenericCommand) Empty() bool {
 	if g.CommandID == 0 && len(g.Key) == 0 && len(g.Value) == 0 {
 		return true
