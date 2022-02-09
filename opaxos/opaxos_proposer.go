@@ -90,6 +90,7 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 				nShares += 1
 			}
 			secretShares, err = krawczyk.Split(cmdBytes, nShares, op.K)
+			secretShares = secretShares[:op.config.Protocol.Quorum2-1]
 		} else {
 			secretShares, err = krawczyk.Split(cmdBytes, op.N-1, op.K)
 		}

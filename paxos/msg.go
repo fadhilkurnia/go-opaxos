@@ -3,8 +3,6 @@ package paxos
 import (
 	"encoding/gob"
 	"fmt"
-	"time"
-
 	"github.com/ailidani/paxi"
 )
 
@@ -51,7 +49,6 @@ type P2a struct {
 	Ballot  paxi.Ballot
 	Slot    int
 	Command paxi.Command
-	SendTime time.Time
 }
 
 func (m P2a) String() string {
@@ -63,7 +60,6 @@ type P2b struct {
 	Ballot paxi.Ballot
 	ID     paxi.ID // from node id
 	Slot   int
-	SendTime time.Time
 }
 
 func (m P2b) String() string {

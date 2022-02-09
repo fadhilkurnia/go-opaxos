@@ -1,11 +1,8 @@
 package paxos
 
 import (
-	"github.com/ailidani/paxi/log"
-	"strconv"
-	"time"
-
 	"github.com/ailidani/paxi"
+	"strconv"
 )
 
 // entry in log
@@ -122,14 +119,33 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		Ballot:  p.ballot,
 		Slot:    p.slot,
 		Command: r.Command,
-		SendTime: time.Now(),
 	}
 
+	ms := p.duplicateValue(m)
 	if paxi.GetConfig().Thrifty {
-		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
+		p.MulticastQuorumUniqueMessage(paxi.GetConfig().N()/2, ms)
 	} else {
-		p.Broadcast(m)
+		p.MulticastUniqueMessage(ms)
 	}
+
+	//if paxi.GetConfig().Thrifty {
+	//	p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
+	//} else {
+	//	p.Broadcast(m)
+	//}
+}
+
+func (p *Paxos) duplicateValue(v P2a) []interface{} {
+	nMessages := paxi.GetConfig().N()-1
+	if paxi.GetConfig().Thrifty {
+		nMessages = paxi.GetConfig().N()/2
+	}
+
+	proposeRequests := make([]interface{}, nMessages)
+	for i:=0; i < nMessages; i++ {
+		proposeRequests[i] = v
+	}
+	return proposeRequests
 }
 
 // HandleP1a handles P1a message
@@ -263,7 +279,6 @@ func (p *Paxos) HandleP2a(m P2a) {
 		Ballot: p.ballot,
 		Slot:   m.Slot,
 		ID:     p.ID(),
-		SendTime: time.Now(),
 	})
 }
 
@@ -276,7 +291,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 	}
 
 	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, p.ID())
-	log.Infof("%d time until received by leader %v", m.Slot, time.Since(m.SendTime))
+	// log.Infof("%d time until received by leader %v", m.Slot, time.Since(m.SendTime))
 
 	// reject message
 	// node update its ballot number and falls back to acceptor
