@@ -15,6 +15,7 @@ type DB interface {
 	Read(key int) (int, error)
 	Write(key, value int) error
 	Write2(key, value int) (interface{}, error)
+	Write3(key int, value []byte) (interface{}, error)
 	Stop() error
 }
 
@@ -252,12 +253,13 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 	for k := range keys {
 		op := new(operation)
 		if rand.Float64() < b.W {
-			v = rand.Int()
+			val := make([]byte, 100)
+			rand.Read(val)
 			s = time.Now()
-			ret, errx := b.db.Write2(k, v)
+			ret, errx := b.db.Write3(k, val)
 			err = errx
 			e = time.Now()
-			op.input = v
+			op.input = val
 			op.output = ret
 		} else {
 			s = time.Now()

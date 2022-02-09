@@ -23,7 +23,7 @@
   "protocol": {
     "name": "paxos"
   },
-  "thrifty": true,
+  "thrifty": false,
   "policy": "majority",
   "chan_buffer_size": 1024,
   "buffer_size": 1024,

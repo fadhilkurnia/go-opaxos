@@ -54,6 +54,11 @@ func (d *db) Write2(k, v int) (interface{}, error) {
 	return ret, err
 }
 
+func (d *db) Write3(k int, v []byte) (interface{}, error) {
+	ret, err := d.Put2(paxi.Key(k), v)
+	return ret, err
+}
+
 func main() {
 	paxi.Init()
 
