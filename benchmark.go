@@ -253,7 +253,7 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 	for k := range keys {
 		op := new(operation)
 		if rand.Float64() < b.W {
-			val := make([]byte, 100)
+			val := make([]byte, 500)
 			rand.Read(val)
 			s = time.Now()
 			ret, errx := b.db.Write3(k, val)
