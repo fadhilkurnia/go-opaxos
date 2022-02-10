@@ -121,31 +121,11 @@ func (p *Paxos) P2a(r *paxi.Request) {
 		Command: r.Command,
 	}
 
-	ms := p.duplicateValue(m)
 	if paxi.GetConfig().Thrifty {
-		p.MulticastQuorumUniqueMessage(paxi.GetConfig().N()/2, ms)
+		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
 	} else {
-		p.MulticastUniqueMessage(ms)
+		p.Broadcast(m)
 	}
-
-	//if paxi.GetConfig().Thrifty {
-	//	p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
-	//} else {
-	//	p.Broadcast(m)
-	//}
-}
-
-func (p *Paxos) duplicateValue(v P2a) []interface{} {
-	nMessages := paxi.GetConfig().N()-1
-	if paxi.GetConfig().Thrifty {
-		nMessages = paxi.GetConfig().N()/2
-	}
-
-	proposeRequests := make([]interface{}, nMessages)
-	for i:=0; i < nMessages; i++ {
-		proposeRequests[i] = v
-	}
-	return proposeRequests
 }
 
 // HandleP1a handles P1a message
