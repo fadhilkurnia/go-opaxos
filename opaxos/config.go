@@ -80,12 +80,12 @@ func InitConfig(cfg *paxi.Config) Config {
 	}
 
 	// check q1 and q2 quorum intersection
-	if protocolCfg.Quorum1+protocolCfg.Quorum2 < cfg.N()+protocolCfg.Threshold {
+	if protocolCfg.SecretSharing != "other" && protocolCfg.Quorum1+protocolCfg.Quorum2 < cfg.N()+protocolCfg.Threshold {
 		log.Fatal("'quorum_1' and 'quorum_2' must intersect with at least 'threshold' nodes")
 	}
 
 	// check q1 and fast quorum intersection
-	if 2*protocolCfg.QuorumFast+protocolCfg.Quorum1 < 2*cfg.N()+protocolCfg.Threshold {
+	if protocolCfg.SecretSharing != "other" && 2*protocolCfg.QuorumFast+protocolCfg.Quorum1 < 2*cfg.N()+protocolCfg.Threshold {
 		log.Fatal("the intersection of 'quorum_fast' must intersect with at least 'threshold' nodes in any 'quorum_1'")
 	}
 
