@@ -73,3 +73,9 @@ type P3 struct {
 func (m P3) String() string {
 	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
 }
+
+type SSBytesRequest struct {
+	*paxi.BytesRequest
+	ssTime     int64
+	ssCommands [][]byte
+}

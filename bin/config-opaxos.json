@@ -22,7 +22,7 @@
     },
     "protocol": {
         "name": "opaxos",
-        "secret_sharing": "other",
+        "secret_sharing": "shamir",
         "threshold": 2,
         "quorum_1": 4,
         "quorum_2": 3,
@@ -34,12 +34,12 @@
     "buffer_size": 1024,
     "multiversion": false,
     "benchmark": {
-        "T": 60,
+        "T": 10,
         "N": 0,
         "K": 9,
         "W": 1.0,
         "Throttle": 0,
-        "Concurrency": 300,
+        "Concurrency": 10,
         "Distribution": "uniform",
         "LinearizabilityCheck": false,
         "Conflicts": 0,

@@ -81,7 +81,7 @@ func replica(id paxi.ID) {
 		hpaxos.NewReplica(id).Run()
 
 	case "opaxos":
-		opaxos.NewReplica(id).Run()
+		opaxos.NewReplica(id).RunWithWorker()
 
 	default:
 		panic("Unknown algorithm")

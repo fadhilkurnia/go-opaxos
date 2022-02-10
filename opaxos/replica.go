@@ -50,6 +50,13 @@ func NewReplica(id paxi.ID) *Replica {
 	return r
 }
 
+func (r *Replica) RunWithWorker() {
+	for i := 0; i < r.OPaxos.numSSWorkers; i++ {
+		go r.OPaxos.runSecretSharingWorkers()
+	}
+	r.Run()
+}
+
 func (r *Replica) handleRequest(m paxi.Request) {
 	// log.Debugf("Replica %s received %v\n", r.ID(), m)
 	r.OPaxos.HandleRequest(m.ToBytesRequest())
