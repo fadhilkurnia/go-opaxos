@@ -38,7 +38,7 @@ func InitConfig(cfg *paxi.Config) Config {
 				v = AlgShamir
 			}
 			if v != AlgShamir && v != AlgSSMS {
-				log.Fatalf("'secret_sharing' have to be '%s' or '%s'", AlgShamir, AlgSSMS)
+				log.Warningf("'secret_sharing' have to be '%s' or '%s', now we are using '%s'", AlgShamir, AlgSSMS, v)
 			}
 			protocolCfg.SecretSharing = v.(string)
 		case "threshold":
