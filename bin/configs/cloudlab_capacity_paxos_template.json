@@ -21,7 +21,12 @@
     "1.5": "acceptor,learner"
   },
   "protocol": {
-    "name": "paxos"
+    "name": "opaxos",
+    "secret_sharing": "other",
+    "threshold": 2,
+    "quorum_1": 3,
+    "quorum_2": 3,
+    "quorum_fast": 4
   },
   "thrifty": false,
   "policy": "majority",
