@@ -78,7 +78,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		quorum:          paxi.NewQuorum(),
 		rawRequests:     make(chan *paxi.BytesRequest, 1000),
 		ssRequests:      make(chan *SSBytesRequest, 1000),
-		numSSWorkers:    runtime.NumCPU(),
+		numSSWorkers:    runtime.GOMAXPROCS(-1),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
 		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
