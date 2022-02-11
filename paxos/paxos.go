@@ -2,16 +2,17 @@ package paxos
 
 import (
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/log"
 	"strconv"
 )
 
 // entry in log
 type entry struct {
-	ballot    paxi.Ballot
-	command   paxi.Command
-	commit    bool
-	request   *paxi.Request
-	quorum    *paxi.Quorum
+	ballot  paxi.Ballot
+	command paxi.Command
+	commit  bool
+	request *paxi.Request
+	quorum  *paxi.Quorum
 }
 
 // Paxos instance
@@ -28,6 +29,7 @@ type Paxos struct {
 
 	quorum   *paxi.Quorum    // phase 1 quorum
 	requests []*paxi.Request // phase 1 pending requests
+	storage  paxi.PersistentStorage
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -42,6 +44,7 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		slot:            -1,
 		quorum:          paxi.NewQuorum(),
 		requests:        make([]*paxi.Request, 0),
+		storage:         paxi.NewPersistentStorage(n.ID()),
 		Q1:              func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:              func(q *paxi.Quorum) bool { return q.Majority() },
 		ReplyWhenCommit: false,
@@ -100,6 +103,11 @@ func (p *Paxos) P1a() {
 	}
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
+
+	if err := p.storage.PersistBallot(p.ballot); err != nil {
+		log.Errorf("failed to persist max ballot %v", err)
+	}
+
 	p.quorum.ACK(p.ID())
 
 	p.Broadcast(P1a{Ballot: p.ballot})
@@ -109,11 +117,16 @@ func (p *Paxos) P1a() {
 func (p *Paxos) P2a(r *paxi.Request) {
 	p.slot++
 	p.log[p.slot] = &entry{
-		ballot:    p.ballot,
-		command:   r.Command,
-		request:   r,
-		quorum:    paxi.NewQuorum(),
+		ballot:  p.ballot,
+		command: r.Command,
+		request: r,
+		quorum:  paxi.NewQuorum(),
 	}
+
+	if err := p.storage.PersistValue(p.slot, p.log[p.slot].command.ToBytesCommand()); err != nil {
+		log.Errorf("failed to persist accepted value %v", err)
+	}
+
 	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
 		Ballot:  p.ballot,
@@ -230,6 +243,14 @@ func (p *Paxos) HandleP2a(m P2a) {
 	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
 
 	if m.Ballot >= p.ballot {
+		if m.Ballot != p.ballot {
+			if err := p.storage.PersistBallot(p.ballot); err != nil {
+				log.Errorf("failed to persist max ballot %v", err)
+			}
+		}
+		if err := p.storage.PersistValue(p.slot, m.Command.ToBytesCommand()); err != nil {
+			log.Errorf("failed to persist accepted value %v", err)
+		}
 		p.ballot = m.Ballot
 		p.active = false
 		// update slot number
@@ -347,6 +368,9 @@ func (p *Paxos) exec() {
 		}
 		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
 		value := p.Execute(e.command)
+		if err := p.storage.ClearValue(p.execute); err != nil {
+			log.Errorf("failed to clear executed message %v", err)
+		}
 		if e.request != nil {
 			reply := paxi.Reply{
 				Command:    e.command,

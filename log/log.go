@@ -100,7 +100,7 @@ func (l *logger) printf(format string, args ...interface{}) {
 var log logger
 
 func init() {
-	flag.StringVar(&log.dir, "log_dir", "", "if empty, write log files in this directory")
+	flag.StringVar(&log.dir, "log_target_dir", "", "if empty, write log files in this directory")
 	flag.Var(&log.severity, "log_level", "logs at and above this level")
 
 	format := stdlog.Ldate | stdlog.Ltime | stdlog.Lmicroseconds | stdlog.Lshortfile

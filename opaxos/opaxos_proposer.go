@@ -14,6 +14,11 @@ func (op *OPaxos) Prepare() {
 	}
 	op.ballot.Next(op.ID())
 	op.quorum.Reset()
+
+	if err := op.storage.PersistBallot(op.ballot); err != nil {
+		log.Errorf("failed to persist max ballot %v", err)
+	}
+
 	op.quorum.ACK(op.ID())
 
 	op.Broadcast(P1a{Ballot: op.ballot})
@@ -36,6 +41,11 @@ func (op *OPaxos) Propose(r *SSBytesRequest) {
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
 	}
+
+	if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
+		log.Errorf("failed to persist accepted value %v", err)
+	}
+
 	op.log[op.slot].quorum.ACK(op.ID())
 
 	// TODO: broadcast clear message to trusted acceptors, secret-shared message to untrusted acceptors

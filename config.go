@@ -16,6 +16,8 @@ type Config struct {
 	HTTPAddrs map[ID]string `json:"http_address"` // address for client server communication
 	Roles     map[ID]string `json:"roles"`        // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
 
+	StoragePath string `json:"storage_path"`
+
 	Protocol map[string]interface{} `json:"protocol"` // (used in OPaxos) consensus protocol used, and its configuration parameter
 
 	Policy    string  `json:"policy"`    // leader change policy {consecutive, majority}

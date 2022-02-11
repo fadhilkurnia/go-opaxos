@@ -1,6 +1,9 @@
 package opaxos
 
-import "github.com/ailidani/paxi"
+import (
+	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/log"
+)
 
 func (op *OPaxos) HandlePrepareRequest(m P1a) {
 	// handle if there is a new leader with higher ballot number
@@ -33,6 +36,15 @@ func (op *OPaxos) HandleProposeRequest(m P2a) {
 	// TODO: handle if this is acceptor that also a proposer (clear command, instead of secret-shared command)
 
 	if m.Ballot >= op.ballot {
+		if m.Ballot != op.ballot {
+			if err := op.storage.PersistBallot(op.ballot); err != nil {
+				log.Errorf("failed to persist max ballot %v", err)
+			}
+		}
+		if err := op.storage.PersistValue(op.slot, m.Command); err != nil {
+			log.Errorf("failed to persist accepted value %v", err)
+		}
+
 		op.ballot = m.Ballot
 		op.IsLeader = false
 
