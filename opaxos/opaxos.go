@@ -5,7 +5,6 @@ import (
 	"github.com/ailidani/paxi/log"
 	"github.com/fadhilkurnia/shamir/krawczyk"
 	"github.com/fadhilkurnia/shamir/shamir"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -79,7 +78,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		quorum:          paxi.NewQuorum(),
 		rawRequests:     make(chan *paxi.BytesRequest, 1000),
 		ssRequests:      make(chan *SSBytesRequest, 1000),
-		numSSWorkers:    runtime.GOMAXPROCS(-1),
+		numSSWorkers:    10,
 		storage:         paxi.NewPersistentStorage(n.ID()),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
