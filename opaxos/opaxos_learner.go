@@ -2,7 +2,6 @@ package opaxos
 
 import (
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/log"
 	"strconv"
 )
 
@@ -33,9 +32,9 @@ func (op *OPaxos) exec() {
 		if op.IsLearner && op.IsProposer {
 			cmd = e.command.ToCommand()
 
-			if err := op.storage.ClearValue(op.execute); err != nil {
-				log.Errorf("failed to clear executed message %v", err)
-			}
+			//if err := op.storage.ClearValue(op.execute); err != nil {
+			//	log.Errorf("failed to clear executed message %v", err)
+			//}
 
 			value = op.Execute(cmd)
 			//log.Debugf("cmd=%v , value=%x", cmd, value)

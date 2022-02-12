@@ -15,9 +15,9 @@ func (op *OPaxos) Prepare() {
 	op.ballot.Next(op.ID())
 	op.quorum.Reset()
 
-	if err := op.storage.PersistBallot(op.ballot); err != nil {
-		log.Errorf("failed to persist max ballot %v", err)
-	}
+	//if err := op.storage.PersistBallot(op.ballot); err != nil {
+	//	log.Errorf("failed to persist max ballot %v", err)
+	//}
 
 	op.quorum.ACK(op.ID())
 
@@ -42,9 +42,9 @@ func (op *OPaxos) Propose(r *SSBytesRequest) {
 		timestamp: time.Now(),
 	}
 
-	if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
-		log.Errorf("failed to persist accepted value %v", err)
-	}
+	//if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
+	//	log.Errorf("failed to persist accepted value %v", err)
+	//}
 
 	op.log[op.slot].quorum.ACK(op.ID())
 

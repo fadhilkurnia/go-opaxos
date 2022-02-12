@@ -23,8 +23,8 @@ github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 h1:tdlZCpZ/P9DhczC
 github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2/go.mod h1:SqUrOPUnsFjfmXRMNPybcSiG0BgUW2AuFH8PAnS2iTw=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
-github.com/fadhilkurnia/shamir v0.1.2 h1:Lech/mxhqvosu+ZB5J1tamUdzsntFcteARd9u9GB0XM=
-github.com/fadhilkurnia/shamir v0.1.2/go.mod h1:kklOXCpn4JnEsfohJGFgbotu052nwn8bjcZEweyVLDs=
+github.com/fadhilkurnia/shamir v0.1.3 h1:b3jLZddAoanD5B8U6OxLXroqEp3oyqjL/KI9ODxC4nk=
+github.com/fadhilkurnia/shamir v0.1.3/go.mod h1:kklOXCpn4JnEsfohJGFgbotu052nwn8bjcZEweyVLDs=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/gogo/protobuf v1.3.2 h1:Ov1cvc58UF3b5XjBnZv7+opcTcQFZebYjWzi34vdm4Q=
 github.com/gogo/protobuf v1.3.2/go.mod h1:P1XiOD3dCwIKUDQYPy72D8LYyHL2YPYrpS2s69NZV8Q=

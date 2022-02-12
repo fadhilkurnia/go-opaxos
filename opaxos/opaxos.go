@@ -39,7 +39,7 @@ type OPaxos struct {
 	execute int            // next execute slot number
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
-	storage paxi.PersistentStorage
+	//storage paxi.PersistentStorage
 
 	quorum       *paxi.Quorum            // quorum store all ack'd responses
 	numSSWorkers int                     // number of worker for secret-sharing
@@ -79,7 +79,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		rawRequests:     make(chan *paxi.BytesRequest, 1000),
 		ssRequests:      make(chan *SSBytesRequest, 1000),
 		numSSWorkers:    10,
-		storage:         paxi.NewPersistentStorage(n.ID()),
+		//storage:         paxi.NewPersistentStorage(n.ID()),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
 		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
