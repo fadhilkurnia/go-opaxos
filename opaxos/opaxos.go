@@ -39,13 +39,11 @@ type OPaxos struct {
 	execute int            // next execute slot number
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
-	//storage paxi.PersistentStorage
 
 	quorum       *paxi.Quorum            // quorum store all ack'd responses
 	numSSWorkers int                     // number of worker for secret-sharing
 	rawRequests  chan *paxi.BytesRequest // raw requests, ready to be secret-shared
 	ssRequests   chan *SSBytesRequest    // phase 1 pending requests
-	//requests     []*paxi.BytesRequest    // phase 1 pending requests
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
