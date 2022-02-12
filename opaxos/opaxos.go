@@ -5,6 +5,7 @@ import (
 	"github.com/ailidani/paxi/log"
 	"github.com/fadhilkurnia/shamir/krawczyk"
 	"github.com/fadhilkurnia/shamir/shamir"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -44,6 +45,7 @@ type OPaxos struct {
 	numSSWorkers int                     // number of worker for secret-sharing
 	rawRequests  chan *paxi.BytesRequest // raw requests, ready to be secret-shared
 	ssRequests   chan *SSBytesRequest    // phase 1 pending requests
+	//storage      paxi.PersistentStorage
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -67,16 +69,16 @@ type OPaxos struct {
 // NewOPaxos creates new OPaxos instance (constructor)
 func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 	op := &OPaxos{
-		Node:            n,
-		config:          cfg,
-		algorithm:       cfg.Protocol.SecretSharing,
-		log:             make(map[int]*entry, paxi.GetConfig().BufferSize),
-		slot:            -1,
-		execute:         0,
-		quorum:          paxi.NewQuorum(),
-		rawRequests:     make(chan *paxi.BytesRequest, 1000),
-		ssRequests:      make(chan *SSBytesRequest, 1000),
-		numSSWorkers:    10,
+		Node:         n,
+		config:       cfg,
+		algorithm:    cfg.Protocol.SecretSharing,
+		log:          make(map[int]*entry, paxi.GetConfig().BufferSize),
+		slot:         -1,
+		execute:      0,
+		quorum:       paxi.NewQuorum(),
+		rawRequests:  make(chan *paxi.BytesRequest, 1000),
+		ssRequests:   make(chan *SSBytesRequest, 1000),
+		numSSWorkers: maxInt(10, runtime.GOMAXPROCS(-1)),
 		//storage:         paxi.NewPersistentStorage(n.ID()),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
@@ -150,12 +152,7 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 		}
 	} else if op.algorithm == AlgSSMS {
 		if op.config.Thrifty {
-			// in krawczyk, nShares - K > 0
-			nShares := op.config.Protocol.Quorum2 - 1
-			if nShares-op.K == 0 {
-				nShares += 1
-			}
-			secretShares, err = krawczyk.Split(cmdBytes, nShares, op.K)
+			secretShares, err = krawczyk.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
 			secretShares = secretShares[:op.config.Protocol.Quorum2-1]
 		} else {
 			secretShares, err = krawczyk.Split(cmdBytes, op.N-1, op.K)
@@ -181,4 +178,11 @@ func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) 
 	// log.Debugf("cmd length: before=%d, after=%d. processing-time=%v, #N=%d, #k=%d", len(cmdBytes), len(secretShares[0]), ssTime, op.N-1, op.K)
 
 	return secretShares, ssTime.Nanoseconds(), nil
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
