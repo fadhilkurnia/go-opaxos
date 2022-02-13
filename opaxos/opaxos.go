@@ -3,8 +3,6 @@ package opaxos
 import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"github.com/fadhilkurnia/shamir/krawczyk"
-	"github.com/fadhilkurnia/shamir/shamir"
 	"runtime"
 	"strings"
 	"time"
@@ -46,6 +44,8 @@ type OPaxos struct {
 	rawRequests  chan *paxi.BytesRequest // raw requests, ready to be secret-shared
 	ssRequests   chan *SSBytesRequest    // phase 1 pending requests
 	//storage      paxi.PersistentStorage
+
+	defaultSSWorker secretSharingWorker // secret-sharing worker for reconstruction only, used without channel
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -96,6 +96,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 	for _, r := range roles {
 		if r == "proposer" {
 			op.IsProposer = true
+			op.initDefaultSecretSharingWorker()
 		}
 		if r == "acceptor" {
 			op.IsAcceptor = true
@@ -127,57 +128,27 @@ func (op *OPaxos) HandleRequest(r paxi.BytesRequest) {
 	}
 }
 
-func (op *OPaxos) runSecretSharingWorkers() {
-	for {
-		req := <-op.rawRequests
-		ss, ssTime, err := op.secretSharesCommand(req.Command)
-		if err != nil {
-			log.Errorf("failed to do secret sharing: %v", err)
-		}
-		op.ssRequests <- &SSBytesRequest{req, ssTime, ss}
+func (op *OPaxos) initAndRunSecretSharingWorker() {
+	numShares := op.N - 1
+	numThreshold := op.K
+
+	if op.config.Thrifty {
+		numShares = op.config.Protocol.Quorum2 - 1
 	}
+
+	worker := newWorker(op.algorithm, numShares, numThreshold)
+	worker.startProcessingInput(op.rawRequests, op.ssRequests)
 }
 
-func (op *OPaxos) secretSharesCommand(cmdBytes []byte) ([][]byte, int64, error) {
-	var err error
-	var secretShares [][]byte
+func (op *OPaxos) initDefaultSecretSharingWorker() {
+	numShares := op.N - 1
+	numThreshold := op.K
 
-	s := time.Now()
-
-	if op.algorithm == AlgShamir {
-		if op.config.Thrifty {
-			secretShares, err = shamir.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
-		} else {
-			secretShares, err = shamir.Split(cmdBytes, op.N-1, op.K)
-		}
-	} else if op.algorithm == AlgSSMS {
-		if op.config.Thrifty {
-			secretShares, err = krawczyk.Split(cmdBytes, op.config.Protocol.Quorum2-1, op.K)
-			secretShares = secretShares[:op.config.Protocol.Quorum2-1]
-		} else {
-			secretShares, err = krawczyk.Split(cmdBytes, op.N-1, op.K)
-		}
-	} else {
-		nShares := op.config.Protocol.Quorum2 - 1
-		if !op.config.Thrifty {
-			nShares = op.N - 1
-		}
-		secretShares = make([][]byte, nShares)
-		for i := 0; i < nShares; i++ {
-			secretShares[i] = cmdBytes
-		}
+	if op.config.Thrifty {
+		numShares = op.config.Protocol.Quorum2 - 1
 	}
 
-	ssTime := time.Since(s)
-
-	if err != nil {
-		log.Errorf("failed to split secret %v\n", err)
-		return nil, 0, err
-	}
-
-	// log.Debugf("cmd length: before=%d, after=%d. processing-time=%v, #N=%d, #k=%d", len(cmdBytes), len(secretShares[0]), ssTime, op.N-1, op.K)
-
-	return secretShares, ssTime.Nanoseconds(), nil
+	op.defaultSSWorker = newWorker(op.algorithm, numShares, numThreshold)
 }
 
 func maxInt(a int, b int) int {

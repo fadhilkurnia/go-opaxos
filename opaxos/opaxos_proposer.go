@@ -27,7 +27,7 @@ func (op *OPaxos) Prepare() {
 // Propose initiates phase 2 of opaxos
 func (op *OPaxos) Propose(r *SSBytesRequest) {
 	// secret-shared the command
-	//ssCommand, encodingTime, err := op.secretSharesCommand(r.Command)
+	//ssCommand, encodingTime, err := op.secretSharesCommand(randomizer.Command)
 	//if err != nil {
 	//	log.Errorf("failed to secret share command %v", err)
 	//	return
@@ -66,7 +66,7 @@ func (op *OPaxos) Propose(r *SSBytesRequest) {
 		op.MulticastUniqueMessage(proposeRequests)
 	}
 
-	// r.ssCommands = nil
+	// randomizer.ssCommands = nil
 
 	// TODO: store secret-shared commands for backup
 	//commandShares := make([]*CommandShare, len(ssCommand))
@@ -161,7 +161,7 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 				}
 
 				// regenerate secret-shared command
-				newSSCommands, ssTime, err := op.secretSharesCommand(op.log[i].command)
+				newSSCommands, ssTime, err := op.defaultSSWorker.secretShareCommand(op.log[i].command)
 				if err != nil {
 					log.Errorf("failed to secret share command %v", err)
 					continue
