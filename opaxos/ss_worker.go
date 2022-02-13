@@ -43,9 +43,9 @@ func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, int
 	s := time.Now()
 
 	if w.algorithm == AlgShamir {
-		secretShares, err = shamir.Split(cmdBytes, w.numShares, w.numThreshold)
+		secretShares, err = shamir.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
 	} else if w.algorithm == AlgSSMS {
-		secretShares, err = krawczyk.Split(cmdBytes, w.numShares, w.numThreshold)
+		secretShares, err = krawczyk.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
 	} else {
 		secretShares = make([][]byte, w.numShares)
 		for i := 0; i < w.numShares; i++ {
