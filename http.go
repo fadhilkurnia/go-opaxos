@@ -2,6 +2,8 @@ package paxi
 
 import (
 	"encoding/json"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -34,9 +36,10 @@ func (n *node) http() {
 		log.Fatal("http url parse error: ", err)
 	}
 	port := ":" + url.Port()
+	h2s := &http2.Server{}
 	n.server = &http.Server{
 		Addr:    port,
-		Handler: mux,
+		Handler: h2c.NewHandler(mux, h2s),
 	}
 	log.Info("http server starting on ", port)
 	log.Fatal(n.server.ListenAndServe())

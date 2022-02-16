@@ -56,6 +56,7 @@ func NewHTTPClient(id ID) *HTTPClient {
 				MaxIdleConns: 1000,
 				MaxIdleConnsPerHost: 1000,
 				IdleConnTimeout: 60 * time.Second,
+				ForceAttemptHTTP2: true,
 			},
 		},
 	}

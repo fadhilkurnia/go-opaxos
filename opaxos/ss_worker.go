@@ -3,14 +3,14 @@ package opaxos
 import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"github.com/fadhilkurnia/shamir/csprng"
 	"github.com/fadhilkurnia/shamir/krawczyk"
 	"github.com/fadhilkurnia/shamir/shamir"
-	"math/rand"
 	"time"
 )
 
 type secretSharingWorker struct {
-	randomizer *rand.Rand
+	randomizer *csprng.CSPRNG
 	algorithm  string
 	numShares    int
 	numThreshold int
@@ -18,7 +18,7 @@ type secretSharingWorker struct {
 
 func newWorker(algorithm string, numShares, numThreshold int) secretSharingWorker {
 	return secretSharingWorker{
-		rand.New(rand.NewSource(time.Now().UnixNano())),
+		csprng.NewCSPRNG(),
 		algorithm,
 		numShares,
 		numThreshold,
