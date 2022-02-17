@@ -78,7 +78,7 @@ func NewOPaxos(n paxi.Node, cfg *Config, options ...func(*OPaxos)) *OPaxos {
 		quorum:       paxi.NewQuorum(),
 		rawRequests:  make(chan *paxi.BytesRequest, 1000),
 		ssRequests:   make(chan *SSBytesRequest, 1000),
-		numSSWorkers: maxInt(10, runtime.GOMAXPROCS(-1)*3),
+		numSSWorkers: maxInt(10, runtime.GOMAXPROCS(-1)),
 		//storage:         paxi.NewPersistentStorage(n.ID()),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
