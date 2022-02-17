@@ -113,7 +113,8 @@ func (n *node) handle() {
 		name := v.Type().String()
 		f, exists := n.handles[name]
 		if !exists {
-			log.Fatalf("no registered handle function for message type %v", name)
+			log.Infof("no registered handle function for message type %v", name)
+			continue
 		}
 		f.Call([]reflect.Value{v})
 	}
