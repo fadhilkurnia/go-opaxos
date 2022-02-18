@@ -31,12 +31,14 @@ func (n *node) http() {
 	mux.HandleFunc("/crash", n.handleCrash)
 	mux.HandleFunc("/drop", n.handleDrop)
 	// http string should be in form of ":8080"
-	url, err := url.Parse(config.HTTPAddrs[n.id])
+	httpURL, err := url.Parse(config.HTTPAddrs[n.id])
 	if err != nil {
 		log.Fatal("http url parse error: ", err)
 	}
-	port := ":" + url.Port()
-	h2s := &http2.Server{}
+	port := ":" + httpURL.Port()
+	h2s := &http2.Server{
+		MaxConcurrentStreams: 2_000,
+	}
 	n.server = &http.Server{
 		Addr:    port,
 		Handler: h2c.NewHandler(mux, h2s),
