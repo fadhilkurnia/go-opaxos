@@ -58,6 +58,8 @@ func NewHTTPClient(id ID) *HTTPClient {
 					return net.Dial(network, addr)
 				},
 				AllowHTTP: true,
+				DisableCompression: true,
+				StrictMaxConcurrentStreams: false,
 			},
 		},
 	}
