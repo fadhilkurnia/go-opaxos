@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"flag"
+	"io"
 	"net"
 	"net/url"
 	"strings"
@@ -17,7 +18,7 @@ var scheme = flag.String("transport", "tcp", "transport scheme (tcp, udp, chan),
 
 // Transport = transport + pipe + client + server
 type Transport interface {
-	// Scheme returns tranport scheme
+	// Scheme returns transport scheme
 	Scheme() string
 
 	// Send sends message into t.send chan
@@ -154,6 +155,10 @@ func (t *tcp) Listen() {
 						var m interface{}
 						err := decoder.Decode(&m)
 						if err != nil {
+							if err == io.EOF {
+								log.Errorf("connection is closed from the other end %v", err)
+								return
+							}
 							log.Error(err)
 							continue
 						}

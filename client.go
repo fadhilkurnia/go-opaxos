@@ -2,19 +2,20 @@ package paxi
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"github.com/ailidani/paxi/lib"
+	"github.com/ailidani/paxi/log"
+	"golang.org/x/net/http2"
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
 	"sync"
-	"time"
-
-	"github.com/ailidani/paxi/lib"
-	"github.com/ailidani/paxi/log"
 )
 
 // Client interface provides get and put for key value store
@@ -52,11 +53,11 @@ func NewHTTPClient(id ID) *HTTPClient {
 		Addrs:  config.Addrs,
 		HTTP:   config.HTTPAddrs,
 		Client: &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConns: 1000,
-				MaxIdleConnsPerHost: 1000,
-				IdleConnTimeout: 60 * time.Second,
-				ForceAttemptHTTP2: true,
+			Transport: &http2.Transport{
+				DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+					return net.Dial(network, addr)
+				},
+				AllowHTTP: true,
 			},
 		},
 	}
