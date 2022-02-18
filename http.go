@@ -2,16 +2,17 @@ package paxi
 
 import (
 	"encoding/json"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ailidani/paxi/log"
+	"github.com/valyala/fasthttp"
 )
 
 // http request header names
@@ -36,15 +37,146 @@ func (n *node) http() {
 		log.Fatal("http url parse error: ", err)
 	}
 	port := ":" + httpURL.Port()
-	h2s := &http2.Server{
-		MaxConcurrentStreams: 2_000,
-	}
 	n.server = &http.Server{
 		Addr:    port,
-		Handler: h2c.NewHandler(mux, h2s),
+		Handler: mux,
 	}
 	log.Info("http server starting on ", port)
 	log.Fatal(n.server.ListenAndServe())
+}
+
+func (n *node) fasthttp() {
+	// prepare handler
+	requestHandler := func(ctx *fasthttp.RequestCtx) {
+		switch string(ctx.Path()) {
+		case "/":
+			n.handleRootWithCtx(ctx)
+		case "/b":
+			n.handleBytesRequestWithCtx(ctx)
+		default:
+			ctx.Error("unsupported path", fasthttp.StatusNotFound)
+		}
+	}
+
+	// http string should be in form of ":8080"
+	httpURL, err := url.Parse(config.HTTPAddrs[n.id])
+	if err != nil {
+		log.Fatal("http url parse error: ", err)
+	}
+	port := ":" + httpURL.Port()
+
+	// starting server
+	log.Info("http server starting on ", port)
+	log.Fatal(fasthttp.ListenAndServe(port, requestHandler))
+}
+
+func (n *node) handleRootWithCtx(ctx *fasthttp.RequestCtx)  {
+	var req Request
+	var cmd Command
+	var err error
+
+	// get all http headers
+	req.Properties = make(map[string]string)
+	ctx.Request.Header.VisitAll(func(key, value []byte) {
+		if string(key) == HTTPClientID {
+			cmd.ClientID = ID(value)
+			return
+		} else if string(key) == HTTPCommandID {
+			cmd.CommandID, err = strconv.Atoi(string(value))
+			if err != nil {
+				log.Errorf("failed to convert CommandID (Cid) to integer: %v", err)
+				return
+			}
+		} else {
+			req.Properties[string(key)] = string(value)
+		}
+	})
+
+	// get command key and value
+	pathParts := strings.Split(string(ctx.Path()), "/")
+	if len(pathParts) > 2 {
+		var key int
+		key, err = strconv.Atoi(pathParts[2])
+		if err != nil {
+			ctx.Error("invalid path", fasthttp.StatusBadRequest)
+			log.Error(err)
+			return
+		}
+		cmd.Key = Key(key)
+		if ctx.IsPut() || ctx.IsPost() {
+			cmd.Value = ctx.PostBody()
+		}
+	} else {
+		_ = json.Unmarshal(ctx.PostBody(), &cmd)
+	}
+
+	req.Command = cmd
+	req.Timestamp = time.Now().UnixNano()
+	req.NodeID = n.id
+	req.c = make(chan Reply, 1)
+
+	n.MessageChan <- req
+	reply := <-req.c
+
+	if reply.Err != nil {
+		ctx.Error(reply.Err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+
+	// set all http headers
+	ctx.Response.Header.Set(HTTPClientID, string(reply.Command.ClientID))
+	ctx.Response.Header.Set(HTTPCommandID, strconv.Itoa(reply.Command.CommandID))
+	for k, v := range reply.Properties {
+		ctx.Response.Header.Set(k, v)
+	}
+
+	_, err = fmt.Fprint(ctx, string(reply.Value))
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (n *node) handleBytesRequestWithCtx(ctx *fasthttp.RequestCtx)  {
+	var req BytesRequest
+
+	if !ctx.IsPut() && ctx.IsPost() {
+		ctx.Error("unknown handler for this http method", fasthttp.StatusBadRequest)
+		log.Error("unknown handler for this http method")
+		return
+	}
+
+	// get all http headers
+	req.Properties = make(map[string]string)
+	ctx.Request.Header.VisitAll(func(key, value []byte) {
+		req.Properties[string(key)] = string(value)
+	})
+
+	// read the payload (command)
+	body := ctx.PostBody()
+	req.Command = body
+	req.Timestamp = time.Now().Unix()
+	req.NodeID = n.id
+	req.c = make(chan Reply, 1)
+
+	// send request to replica, wait for the response
+	n.MessageChan <- req
+	reply := <-req.c
+
+	if reply.Err != nil {
+		ctx.Error(reply.Err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+
+	// set all http headers
+	for k, v := range reply.Properties {
+		ctx.Response.Header.Set(k, v)
+	}
+
+	// send the response
+	_, err := fmt.Fprint(ctx, string(reply.Value))
+	if err != nil {
+		log.Error(err)
+	}
 }
 
 func (n *node) handleRoot(w http.ResponseWriter, r *http.Request) {

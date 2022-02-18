@@ -77,7 +77,7 @@ func (n *node) Run() {
 		go n.handle()
 		go n.recv()
 	}
-	n.http()
+	n.fasthttp()
 }
 
 // recv receives messages from socket and pass to message channel
