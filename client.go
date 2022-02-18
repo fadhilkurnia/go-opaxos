@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/ailidani/paxi/lib"
 	"github.com/ailidani/paxi/log"
+	"github.com/valyala/fasthttp"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -40,21 +43,24 @@ type HTTPClient struct {
 	LocalN int // number of nodes in local zone
 
 	CID int // command id
+
+	LeaderClient fasthttp.PipelineClient
+
 	*http.Client
 }
 
 // NewHTTPClient creates a new Client from config
 func NewHTTPClient(id ID) *HTTPClient {
 	c := &HTTPClient{
-		ID:     id,
-		N:      len(config.Addrs),
-		Addrs:  config.Addrs,
-		HTTP:   config.HTTPAddrs,
+		ID:    id,
+		N:     len(config.Addrs),
+		Addrs: config.Addrs,
+		HTTP:  config.HTTPAddrs,
 		Client: &http.Client{
 			Transport: &http.Transport{
-				MaxIdleConns: 1000,
+				MaxIdleConns:        1000,
 				MaxIdleConnsPerHost: 1000,
-				IdleConnTimeout: 60 * time.Second,
+				IdleConnTimeout:     60 * time.Second,
 			},
 		},
 	}
@@ -66,6 +72,11 @@ func NewHTTPClient(id ID) *HTTPClient {
 			}
 		}
 		c.LocalN = i
+	}
+
+	c.LeaderClient = fasthttp.PipelineClient{
+		Addr:     c.GetHostURL(id),
+		MaxConns: 100,
 	}
 
 	return c
@@ -112,9 +123,34 @@ func (c *HTTPClient) GetURL(id ID, key Key) string {
 	return c.HTTP[id] + "/" + strconv.Itoa(int(key))
 }
 
+func (c *HTTPClient) GetHostURL(id ID) string {
+	if id == "" {
+		for id = range c.HTTP {
+			if c.ID == "" || id.Zone() == c.ID.Zone() {
+				break
+			}
+		}
+
+		i := rand.Intn(len(c.HTTP))
+		for id = range c.HTTP {
+			if i == 0 {
+				break
+			}
+			i--
+		}
+	}
+	u, _ := url.Parse(c.HTTP[id])
+	return u.Host
+}
+
 // rest accesses server's REST API with url = http://ip:port/key
 // if value == nil, it's a read
 func (c *HTTPClient) rest(id ID, key Key, value Value) (Value, map[string]string, error) {
+
+	if id == c.ID {
+		return c.pipelineToLeader(key, value)
+	}
+
 	// get url
 	url := c.GetURL(id, key)
 
@@ -164,6 +200,53 @@ func (c *HTTPClient) rest(id ID, key Key, value Value) (Value, map[string]string
 	dump, _ := httputil.DumpResponse(rep, true)
 	log.Debugf("%q", dump)
 	return nil, metadata, errors.New(rep.Status)
+}
+
+func (c *HTTPClient) pipelineToLeader(key Key, value Value) (Value, map[string]string, error) {
+	httpReq := fasthttp.AcquireRequest()
+	httpResp := fasthttp.AcquireResponse()
+	defer func() {
+		fasthttp.ReleaseResponse(httpResp)
+		fasthttp.ReleaseRequest(httpReq)
+	}()
+	httpReq.SetRequestURI(c.GetURL(c.ID, key))
+	httpReq.Header.Set(HTTPClientID, string(c.ID))
+	httpReq.Header.Set(HTTPCommandID, strconv.Itoa(c.CID))
+	if value == nil {
+		httpReq.Header.SetMethod(fasthttp.MethodGet)
+	} else {
+		httpReq.Header.SetMethod(fasthttp.MethodPost)
+		httpReq.SetBody(value)
+	}
+
+	err := c.LeaderClient.Do(httpReq, httpResp)
+	if err != nil {
+		log.Error(err)
+		return nil, nil, err
+	}
+
+	// get headers
+	metadata := make(map[string]string)
+	httpResp.Header.VisitAll(func(key, value []byte) {
+		metadata[string(key)] = string(value)
+	})
+
+	// http call failed
+	if httpResp.StatusCode() != fasthttp.StatusOK {
+		log.Debugf("failed response: %q", httpResp.Body())
+		return nil, metadata, errors.New(fmt.Sprintf("failed response: %q", httpResp.Body()))
+	}
+
+	rawResponse := make([]byte, len(httpResp.Body()))
+	copy(rawResponse, httpResp.Body())
+
+	if value == nil {
+		log.Debugf("node=%v type=%s key=%v value=%x", c.ID, httpReq.Header.Method(), key, rawResponse)
+	} else {
+		log.Debugf("node=%v type=%s key=%v value=%x", c.ID, httpReq.Header.Method(), key, value)
+	}
+
+	return rawResponse, metadata, nil
 }
 
 // RESTGet issues a http call to node and return value and headers

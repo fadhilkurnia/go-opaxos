@@ -1,15 +1,14 @@
 package opaxos
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"io/ioutil"
+	"github.com/valyala/fasthttp"
 	"math/rand"
 	"net/http"
-	"net/http/httputil"
 )
 
 // Client overwrites read and write operation with generic request
@@ -20,9 +19,10 @@ type Client struct {
 }
 
 func NewClient(id paxi.ID) *Client {
-	return &Client{
+	c := &Client{
 		HTTPClient: paxi.NewHTTPClient(id),
 	}
+	return c
 }
 
 func (c *Client) Get(key paxi.Key) (paxi.Value, error) {
@@ -91,32 +91,32 @@ func (c *Client) getURL(id paxi.ID) string {
 }
 
 func (c *Client) makeGenericRESTCall(bodyRaw []byte) ([]byte, error) {
-	httpReq, err := http.NewRequest(http.MethodPost, c.getURL(c.ID), bytes.NewBuffer(bodyRaw))
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
+	httpReq := fasthttp.AcquireRequest()
+	httpResp := fasthttp.AcquireResponse()
+	defer func() {
+		fasthttp.ReleaseResponse(httpResp)
+		fasthttp.ReleaseRequest(httpReq)
+	}()
+
+	httpReq.SetRequestURI(c.getURL(c.ID))
+	httpReq.Header.SetMethod(fasthttp.MethodPost)
 	httpReq.Header.Set(paxi.HTTPClientID, string(c.ID))
+	httpReq.SetBody(bodyRaw)
 
-	rep, err := c.Client.Do(httpReq)
+	err := c.LeaderClient.Do(httpReq, httpResp)
 	if err != nil {
 		log.Error(err)
 		return nil, err
-	}
-	defer rep.Body.Close()
-
-	if rep.StatusCode == http.StatusOK {
-		b, err := ioutil.ReadAll(rep.Body)
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
-		log.Debugf("node=%v type=%s cmd=%x", c.ID, http.MethodPost, bodyRaw)
-		return b, nil
 	}
 
 	// http call failed
-	dump, _ := httputil.DumpResponse(rep, true)
-	log.Debugf("%q", dump)
-	return nil, errors.New(rep.Status)
+	if httpResp.StatusCode() != fasthttp.StatusOK {
+		log.Debugf("failed response: %q", httpResp.Body())
+		return nil, errors.New(fmt.Sprintf("failed response: %q", httpResp.Body()))
+	}
+
+	rawResponse := make([]byte, len(httpResp.Body()))
+	copy(rawResponse, httpResp.Body())
+	log.Debugf("node=%v type=%s cmd=%x", c.ID, http.MethodPost, bodyRaw)
+	return rawResponse, nil
 }

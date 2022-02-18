@@ -54,7 +54,7 @@ func (n *node) fasthttp() {
 		case "/b":
 			n.handleBytesRequestWithCtx(ctx)
 		default:
-			ctx.Error("unsupported path", fasthttp.StatusNotFound)
+			n.handleRootWithCtx(ctx)
 		}
 	}
 
@@ -75,6 +75,8 @@ func (n *node) handleRootWithCtx(ctx *fasthttp.RequestCtx)  {
 	var cmd Command
 	var err error
 
+	log.Debugf("handling %q", ctx.Path())
+
 	// get all http headers
 	req.Properties = make(map[string]string)
 	ctx.Request.Header.VisitAll(func(key, value []byte) {
@@ -94,14 +96,18 @@ func (n *node) handleRootWithCtx(ctx *fasthttp.RequestCtx)  {
 
 	// get command key and value
 	pathParts := strings.Split(string(ctx.Path()), "/")
-	if len(pathParts) > 2 {
+	log.Debugf("handling %v", pathParts)
+	if len(pathParts) > 1 {
 		var key int
-		key, err = strconv.Atoi(pathParts[2])
+		key, err = strconv.Atoi(pathParts[1])
 		if err != nil {
 			ctx.Error("invalid path", fasthttp.StatusBadRequest)
 			log.Error(err)
 			return
 		}
+
+		log.Debugf("handling key %s", key)
+
 		cmd.Key = Key(key)
 		if ctx.IsPut() || ctx.IsPost() {
 			cmd.Value = ctx.PostBody()
@@ -139,9 +145,9 @@ func (n *node) handleRootWithCtx(ctx *fasthttp.RequestCtx)  {
 func (n *node) handleBytesRequestWithCtx(ctx *fasthttp.RequestCtx)  {
 	var req BytesRequest
 
-	if !ctx.IsPut() && ctx.IsPost() {
+	if !ctx.IsPut() && !ctx.IsPost() {
 		ctx.Error("unknown handler for this http method", fasthttp.StatusBadRequest)
-		log.Error("unknown handler for this http method")
+		log.Errorf("unknown handler for this http method: %q", ctx.Path())
 		return
 	}
 
