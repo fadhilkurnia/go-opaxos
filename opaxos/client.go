@@ -1,14 +1,17 @@
 package opaxos
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/valyala/fasthttp"
+	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"net/http/httputil"
 )
 
 // Client overwrites read and write operation with generic request
@@ -91,6 +94,37 @@ func (c *Client) getURL(id paxi.ID) string {
 }
 
 func (c *Client) makeGenericRESTCall(bodyRaw []byte) ([]byte, error) {
+	httpReq, err := http.NewRequest(http.MethodPost, c.getURL(c.ID), bytes.NewBuffer(bodyRaw))
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	httpReq.Header.Set(paxi.HTTPClientID, string(c.ID))
+
+	rep, err := c.Client.Do(httpReq)
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	defer rep.Body.Close()
+
+	if rep.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(rep.Body)
+		if err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		log.Debugf("node=%v type=%s cmd=%x", c.ID, http.MethodPost, bodyRaw)
+		return b, nil
+	}
+
+	// http call failed
+	dump, _ := httputil.DumpResponse(rep, true)
+	log.Debugf("%q", dump)
+	return nil, errors.New(rep.Status)
+}
+
+func (c *Client) makeGenericRESTCallWithFastHTTP(bodyRaw []byte) ([]byte, error) {
 	httpReq := fasthttp.AcquireRequest()
 	httpResp := fasthttp.AcquireResponse()
 	defer func() {

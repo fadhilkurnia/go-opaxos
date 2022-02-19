@@ -147,9 +147,9 @@ func (c *HTTPClient) GetHostURL(id ID) string {
 // if value == nil, it's a read
 func (c *HTTPClient) rest(id ID, key Key, value Value) (Value, map[string]string, error) {
 
-	if id == c.ID {
-		return c.pipelineToLeader(key, value)
-	}
+	//if id == c.ID {
+	//	return c.pipelineToLeader(key, value)
+	//}
 
 	// get url
 	url := c.GetURL(id, key)
