@@ -206,7 +206,7 @@ func (b *Benchmark) RunAsyncClient() {
 
 		dbClient, err := b.dbClientFactory.Create()
 		if err != nil {
-			log.Fatal("failed to initialize db client")
+			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
 
 		keyGen := NewKeyGenerator(b)
