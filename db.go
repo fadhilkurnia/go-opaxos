@@ -146,7 +146,7 @@ func (d *database) Version(k Key) int {
 	return d.version
 }
 
-// History returns entire vlue history in order
+// History returns entire value history in order
 func (d *database) History(k Key) []Value {
 	d.RLock()
 	defer d.RUnlock()

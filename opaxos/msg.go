@@ -79,3 +79,9 @@ type SSBytesRequest struct {
 	ssTime     int64
 	ssCommands [][]byte
 }
+
+type SecretSharedCommand struct {
+	*paxi.ClientBytesCommand          // pointer to the client's command
+	ssTime                   int64    // time taken to secret-share the command
+	ssCommands               [][]byte // the secret-shared commands
+}

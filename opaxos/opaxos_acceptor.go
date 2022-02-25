@@ -19,7 +19,7 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 		if op.log[s] == nil || op.log[s].commit {
 			continue
 		}
-		l[s] = CommandShare{op.log[s].ballot, op.log[s].command}
+		l[s] = CommandShare{op.log[s].ballot, op.log[s].command.Data}
 	}
 
 	// Send P1b back to proposer / leader
@@ -53,17 +53,23 @@ func (op *OPaxos) HandleProposeRequest(m P2a) {
 		op.slot = paxi.Max(op.slot, m.Slot)
 
 		// update entry
+		bc := paxi.BytesCommand(m.Command) // secret-shared command
 		if e, exists := op.log[m.Slot]; exists {
 			// TODO: forward client request to the leader, now we just discard it
-			if !e.commit && m.Ballot > e.ballot && e.request != nil {
-				e.request = nil
+			if !e.commit && m.Ballot > e.ballot && e.command != nil {
+				e.command = &paxi.ClientBytesCommand{
+					BytesCommand: &bc,
+					RPCMessage: nil,
+				}
 			}
-			e.command = m.Command // secret-shared command
 			e.ballot = m.Ballot
 		} else {
 			op.log[m.Slot] = &entry{
 				ballot:  m.Ballot,
-				command: m.Command, // secret-shared command
+				command: &paxi.ClientBytesCommand{
+					BytesCommand: &bc,
+					RPCMessage: nil,
+				},
 				commit:  false,
 			}
 		}

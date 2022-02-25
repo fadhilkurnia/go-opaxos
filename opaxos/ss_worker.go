@@ -25,14 +25,14 @@ func newWorker(algorithm string, numShares, numThreshold int) secretSharingWorke
 	}
 }
 
-func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.BytesRequest, outputChannel chan *SSBytesRequest) {
+func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.ClientBytesCommand, outputChannel chan *SecretSharedCommand) {
 	for {
 		req := <-inputChannel
-		ss, ssTime, err := w.secretShareCommand(req.Command)
+		ss, ssTime, err := w.secretShareCommand(req.Data)
 		if err != nil {
 			log.Errorf("failed to do secret sharing: %v", err)
 		}
-		outputChannel <- &SSBytesRequest{req, ssTime, ss}
+		outputChannel <- &SecretSharedCommand{req, ssTime, ss}
 	}
 }
 
@@ -57,7 +57,7 @@ func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, int
 	ssTime := time.Since(s)
 
 	if err != nil {
-		log.Errorf("failed to split secret %v\n", err)
+		log.Errorf("failed to split secret: %v\n", err)
 		return nil, ssTime.Nanoseconds(), err
 	}
 

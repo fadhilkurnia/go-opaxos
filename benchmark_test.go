@@ -60,6 +60,17 @@ func (f *FakeDB) Write2(key, value int) (interface{}, error) {
 	return nil, nil
 }
 
+func (f *FakeDB) Write3(key int, value []byte) (interface{}, error) {
+	//log.Debugf("Write %d", key)
+	f.lock.Lock()
+	f.total++
+	if key >= f.start && key <= f.end {
+		f.local++
+	}
+	f.lock.Unlock()
+	return nil, nil
+}
+
 func TestBenchmark(t *testing.T) {
 	start := 200
 	end := 400

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func init() {
@@ -64,11 +66,11 @@ func (r *Request) ToGenericRequest() GenericRequest {
 
 func (r *Request) ToBytesRequest() BytesRequest {
 	return BytesRequest{
-		Timestamp: r.Timestamp,
-		NodeID: r.NodeID,
-		c: r.c,
+		Timestamp:  r.Timestamp,
+		NodeID:     r.NodeID,
+		c:          r.c,
 		Properties: r.Properties,
-		Command: r.Command.ToBytesCommand(),
+		Command:    r.Command.ToBytesCommand(),
 	}
 }
 
@@ -111,6 +113,25 @@ type ReadReply struct {
 
 func (r ReadReply) String() string {
 	return fmt.Sprintf("ReadReply {cid=%d, val=%x}", r.CommandID, r.Value)
+}
+
+type CommandReply struct {
+	OK           bool
+	EncodingTime int64
+	Slot         int
+	Ballot       string
+	Value        []byte
+}
+
+func UnmarshalCommandReply(bufer []byte) *CommandReply {
+	cr := CommandReply{}
+	_ = msgpack.Unmarshal(bufer, &cr)
+	return &cr
+}
+
+func (m *CommandReply) Marshal() []byte {
+	b, _ := msgpack.Marshal(m)
+	return b
 }
 
 // Transaction contains arbitrary number of commands in one request

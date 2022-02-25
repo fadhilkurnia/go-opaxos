@@ -21,25 +21,19 @@ func (op *OPaxos) Prepare() {
 
 	op.quorum.ACK(op.ID())
 
+	log.Debugf("broadcasting prepare message %s", op.ballot.String())
 	op.Broadcast(P1a{Ballot: op.ballot})
 }
 
-// Propose initiates phase 2 of opaxos
-func (op *OPaxos) Propose(r *SSBytesRequest) {
-	// secret-shared the command
-	//ssCommand, encodingTime, err := op.secretSharesCommand(randomizer.Command)
-	//if err != nil {
-	//	log.Errorf("failed to secret share command %v", err)
-	//	return
-	//}
-
+// Propose initiates phase 2 of OPaxos
+func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	op.slot++
 	op.log[op.slot] = &entry{
 		ballot:    op.ballot,
-		command:   r.Command,
-		request:   r,
+		command:   r.ClientBytesCommand,
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
+		ssTime:    r.ssTime,
 	}
 
 	//if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
@@ -65,8 +59,6 @@ func (op *OPaxos) Propose(r *SSBytesRequest) {
 	} else {
 		op.MulticastUniqueMessage(proposeRequests)
 	}
-
-	// randomizer.ssCommands = nil
 
 	// TODO: store secret-shared commands for backup
 	//commandShares := make([]*CommandShare, len(ssCommand))
@@ -110,98 +102,100 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			// propose any uncommitted entries,
 			// this happened when other leaders yield down before
 			// the entries executed by this node.
-			for i := op.execute; i <= op.slot; i++ {
-
-				// for now, we are ignoring a nil gap
-				if op.log[i] == nil || op.log[i].commit {
-					continue
-				}
-
-				op.log[i].ballot = op.ballot
-				op.log[i].quorum = paxi.NewQuorum()
-
-				// check if there are previously accepted command-shares in this slot,
-				// proposed by different leader
-				if len(op.log[i].commandShares) > 0 {
-					// if there are less than K command-shares, we can ignore them, reset the shares.
-					// but if there are more than or exactly K command-shares, we try to reconstruct them
-					if len(op.log[i].commandShares) >= op.K {
-						// get K command-shares with the biggest ballot number
-						ballotShares := map[paxi.Ballot][][]byte{}
-						for j := 0; j < len(op.log[i].commandShares); j++ {
-							ballotShares[op.log[i].commandShares[j].Ballot] = append(
-								ballotShares[op.log[i].commandShares[j].Ballot], op.log[i].commandShares[j].Command)
-						}
-						var acceptedCmdBallot *paxi.Ballot = nil
-						for ballot, cmdShares := range ballotShares {
-							if len(cmdShares) >= op.K && (acceptedCmdBallot == nil || ballot > *acceptedCmdBallot) {
-								acceptedCmdBallot = &ballot
-							}
-						}
-
-						if acceptedCmdBallot == nil {
-							log.Errorf("this should not happen, a proposer get phase-1 quorum without seeing k command-shares")
-							continue
-						}
-
-						reconstructedCmd, err := shamir.Combine(ballotShares[*acceptedCmdBallot])
-						if err != nil {
-							log.Errorf("failed to reconstruct command in slot %d: %v", i, err)
-							continue
-						}
-						op.log[i].command = reconstructedCmd
-					}
-					op.log[i].commandShares = nil
-				}
-
-				if len(op.log[i].command) == 0 {
-					// TODO: after reconstruction, the command is still empty, we need to propose NULL value (command)
-					// TODO: so we can "skip" this slot. For now we are skipping this slot.
-					continue
-				}
-
-				// regenerate secret-shared command
-				newSSCommands, ssTime, err := op.defaultSSWorker.secretShareCommand(op.log[i].command)
-				if err != nil {
-					log.Errorf("failed to secret share command %v", err)
-					continue
-				}
-
-				// reset the request for this slot, we can not reply to the client
-				// anymore, since this request initially might be sent to other proposer
-				// not this one.
-				op.log[i].request = &SSBytesRequest{
-					BytesRequest: &paxi.BytesRequest{
-						Timestamp: time.Now().Unix(),
-						NodeID:    op.ID(),
-						Command:   op.log[i].command,
-					},
-					ssTime:     ssTime,
-					ssCommands: newSSCommands,
-				}
-				op.log[i].timestamp = time.Now()
-				op.log[i].quorum.ACK(op.ID())
-
-				// TODO: broadcast clear message to other proposer, secret shared message to learner
-				proposeRequests := make([]interface{}, op.N-1)
-				for j := 0; j < len(newSSCommands); j++ {
-					proposeRequests[i] = P2a{
-						Ballot:  op.log[i].ballot,
-						Slot:    i,
-						Command: newSSCommands[j],
-					}
-				}
-				if op.config.Thrifty {
-					op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2-1, proposeRequests)
-				} else {
-					op.MulticastUniqueMessage(proposeRequests)
-				}
-			}
+			op.proposeUncommittedEntries()
 
 			// propose new commands, until it is empty
-			for len(op.ssRequests) != 0 {
-				op.Propose(<-op.ssRequests)
+			numPendingRequests := len(op.pendingCommands)
+			for i := 0; i < numPendingRequests; i++ {
+				op.Propose(<-op.pendingCommands)
 			}
+		}
+	}
+}
+
+func (op *OPaxos) proposeUncommittedEntries() {
+	for i := op.execute; i <= op.slot; i++ {
+
+		// for now, we are ignoring a nil gap
+		if op.log[i] == nil || op.log[i].commit {
+			continue
+		}
+
+		op.log[i].ballot = op.ballot
+		op.log[i].quorum = paxi.NewQuorum()
+
+		// check if there are previously accepted command-shares in this slot,
+		// proposed by different leader
+		if len(op.log[i].commandShares) > 0 {
+			// if there are less than K command-shares, we can ignore them, reset the shares.
+			// but if there are more than or exactly K command-shares, we try to reconstruct them
+			if len(op.log[i].commandShares) >= op.K {
+				// get K command-shares with the biggest ballot number
+				ballotShares := map[paxi.Ballot][][]byte{}
+				for j := 0; j < len(op.log[i].commandShares); j++ {
+					ballotShares[op.log[i].commandShares[j].Ballot] = append(
+						ballotShares[op.log[i].commandShares[j].Ballot], op.log[i].commandShares[j].Command)
+				}
+				var acceptedCmdBallot *paxi.Ballot = nil
+				for ballot, cmdShares := range ballotShares {
+					if len(cmdShares) >= op.K && (acceptedCmdBallot == nil || ballot > *acceptedCmdBallot) {
+						acceptedCmdBallot = &ballot
+					}
+				}
+
+				if acceptedCmdBallot == nil {
+					log.Errorf("this should not happen, a proposer get phase-1 quorum without seeing k command-shares")
+					continue
+				}
+
+				reconstructedCmd, err := shamir.Combine(ballotShares[*acceptedCmdBallot])
+				if err != nil {
+					log.Errorf("failed to reconstruct command in slot %d: %v", i, err)
+					continue
+				}
+				op.log[i].command.Data = reconstructedCmd
+			}
+			op.log[i].commandShares = nil
+		}
+
+		if len(op.log[i].command.Data) == 0 {
+			// TODO: after reconstruction, the command is still empty, we need to propose NULL value (command)
+			// TODO: so we can "skip" this slot. For now we are skipping this slot.
+			continue
+		}
+
+		// regenerate secret-shared command
+		newSSCommands, ssTime, err := op.defaultSSWorker.secretShareCommand(op.log[i].command.Data)
+		if err != nil {
+			log.Errorf("failed to secret share command %v", err)
+			continue
+		}
+
+		// reset the request for this slot, we can not reply to the client
+		// anymore, since this request initially might be sent to other proposer
+		// not this one.
+		bc := paxi.BytesCommand(op.log[i].command.Data)
+		op.log[i].command = &paxi.ClientBytesCommand{
+			BytesCommand: &bc,
+			RPCMessage:   nil,
+		}
+		op.log[i].ssTime = ssTime
+		op.log[i].timestamp = time.Now()
+		op.log[i].quorum.ACK(op.ID())
+
+		// TODO: broadcast clear message to other proposer, secret shared message to learner
+		proposeRequests := make([]interface{}, op.N-1)
+		for j := 0; j < len(newSSCommands); j++ {
+			proposeRequests[i] = P2a{
+				Ballot:  op.log[i].ballot,
+				Slot:    i,
+				Command: newSSCommands[j],
+			}
+		}
+		if op.config.Thrifty {
+			op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2-1, proposeRequests)
+		} else {
+			op.MulticastUniqueMessage(proposeRequests)
 		}
 	}
 }

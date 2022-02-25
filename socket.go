@@ -135,7 +135,7 @@ func (s *socket) Recv() interface{} {
 }
 
 func (s *socket) MulticastZone(zone int, m interface{}) {
-	//log.Debugf("node %s broadcasting message %+v in zone %d", s.id, m, zone)
+	log.Debugf("node %s broadcasting message %+v in zone %d", s.id, m, zone)
 	for id := range s.addresses {
 		if id == s.id {
 			continue
@@ -147,7 +147,7 @@ func (s *socket) MulticastZone(zone int, m interface{}) {
 }
 
 func (s *socket) MulticastQuorum(quorum int, m interface{}) {
-	//log.Debugf("node %s multicasting message %+v for %d nodes", s.id, m, quorum)
+	log.Debugf("node %s multicasting message %+v for %d nodes", s.id, m, quorum)
 	i := 0
 	for id := range s.addresses {
 		if id == s.id {
@@ -162,7 +162,7 @@ func (s *socket) MulticastQuorum(quorum int, m interface{}) {
 }
 
 func (s *socket) MulticastUniqueMessage(ms []interface{}) {
-	//log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
+	log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
 	if len(ms) < len(s.addresses)-1 {
 		log.Fatalf("need more message to be sent to the peers, expecting %d messages but only get %d",
 			len(s.addresses)-1, len(ms))
@@ -198,7 +198,7 @@ func (s *socket) MulticastQuorumUniqueMessage(quorum int, ms[]interface{}) {
 }
 
 func (s *socket) Broadcast(m interface{}) {
-	//log.Debugf("node %s broadcasting message %+v", s.id, m)
+	log.Debugf("node %s broadcasting message %+v", s.id, m)
 	for id := range s.addresses {
 		if id == s.id {
 			continue

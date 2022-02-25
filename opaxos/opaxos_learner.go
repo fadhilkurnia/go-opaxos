@@ -2,7 +2,8 @@ package opaxos
 
 import (
 	"github.com/ailidani/paxi"
-	"strconv"
+	"github.com/ailidani/paxi/log"
+	"time"
 )
 
 func (op *OPaxos) HandleCommitRequest(m P3) {
@@ -27,6 +28,7 @@ func (op *OPaxos) exec() {
 		}
 
 		// only learner that also a proposer that can execute the command
+		// since it has clear command, not the secret-shared command
 		value := paxi.Value{}
 		var cmd paxi.Command
 		if op.IsLearner && op.IsProposer {
@@ -37,22 +39,25 @@ func (op *OPaxos) exec() {
 			//}
 
 			value = op.Execute(cmd)
-			//log.Debugf("cmd=%v , value=%x", cmd, value)
+			log.Debugf("cmd=%v, value=%x", cmd, value)
 		}
 
-		if e.request != nil {
-			reply := paxi.Reply{
-				Value:      value,
-				Properties: make(map[string]string),
+		if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
+			reply := paxi.CommandReply{
+				OK:           true,
+				EncodingTime: e.ssTime,
+				Slot:         op.execute,
+				Ballot:       e.ballot.String(),
+				Value:        value,
 			}
-			reply.Properties[HTTPHeaderSlot] = strconv.Itoa(op.execute)
-			reply.Properties[HTTPHeaderBallot] = e.ballot.String()
-			reply.Properties[HTTPHeaderExecute] = strconv.Itoa(op.execute)
-			reply.Properties[HTTPHeaderEncodingTime] = strconv.FormatInt(e.request.ssTime, 10)
-			e.request.Reply(reply)
-			e.request = nil
-			//log.Infof("slot=%d time from received until executed %v", op.execute, time.Since(e.timestamp))
+			err := e.command.RPCMessage.SendReply(reply.Marshal())
+			if err != nil {
+				log.Errorf("failed to send CommandReply %s", err)
+			}
+			e.command.RPCMessage = nil
+			log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
 		}
+
 		// TODO clean up the log periodically
 		delete(op.log, op.execute)
 		op.execute++

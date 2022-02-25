@@ -9,6 +9,7 @@ import (
 func TestSerializeGenericCommand(t *testing.T) {
 	gc := GenericCommand{
 		CommandID: 100,
+		Operation: OP_WRITE,
 		Key:       []byte{1},
 		Value:     []byte{100, 100, 100},
 	}
@@ -30,6 +31,7 @@ func TestSerializeGenericCommand(t *testing.T) {
 func TestSerializeCommand(t *testing.T) {
 	gc := GenericCommand{
 		CommandID: 100,
+		Operation: OP_WRITE,
 		Key:       []byte{1,1,1,1},
 		Value:     []byte{100, 100, 100},
 	}

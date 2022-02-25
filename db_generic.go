@@ -6,13 +6,19 @@ import (
 	"fmt"
 )
 
+const (
+	OP_READ uint8 = iota
+	OP_WRITE
+)
+
 // BytesCommand is command in bytes, consecutively:
-// CommandID (4 bytes), KeyLen (4 bytes), Key (KeyLen bytes)
-// ValueLen (4 bytes), Value (ValueLen bytes)
+// CommandID (4 bytes), Operation (1 byte), KeyLen (2 bytes),
+// Key (KeyLen bytes), ValueLen (4 bytes), Value (ValueLen bytes)
 type BytesCommand []byte
 
 type GenericCommand struct {
 	CommandID uint32
+	Operation uint8
 	Key       []byte
 	Value     []byte
 }
@@ -20,46 +26,107 @@ type GenericCommand struct {
 func (b *BytesCommand) ToCommand() Command {
 	var cmd Command
 	bc := []byte(*b)
-	cmd.CommandID = int(binary.BigEndian.Uint32(bc[:4]))
-	keyLen := binary.BigEndian.Uint32(bc[4:8])
-	cmd.Key = Key(binary.BigEndian.Uint32(bc[8:12]))
-	valLen := binary.BigEndian.Uint32(bc[keyLen+8 : keyLen+8+4])
+
+	// read 4 bytes of CommandID
+	cmd.CommandID = int(binary.BigEndian.Uint32(bc[0:4]))
+
+	// skip 1 byte of Operation
+	_ = bc[4]
+
+	// read 2 bytes of KeyLen
+	keyLen := binary.BigEndian.Uint16(bc[5:7])
+
+	// read KeyLen bytes of Key
+	cmd.Key = Key(binary.BigEndian.Uint32(bc[7 : 7+keyLen]))
+
+	// read 4 bytes of ValLen
+	valLen := binary.BigEndian.Uint32(bc[7+keyLen : 7+keyLen+4])
+
+	// read valLen bytes of Val
 	if valLen != 0 {
-		cmd.Value = bc[keyLen+8+4 : keyLen+8+4+valLen]
+		cmd.Value = bc[7+keyLen+4 : 7+uint32(keyLen)+4+valLen]
 	}
+
 	return cmd
 }
 
 func (b *BytesCommand) ToGenericCommand() GenericCommand {
 	var cmd GenericCommand
 	bc := []byte(*b)
+
+	// read 4 bytes of CommandID
 	cmd.CommandID = binary.BigEndian.Uint32(bc[:4])
-	keyLen := binary.BigEndian.Uint32(bc[4:8])
-	cmd.Key = bc[8 : keyLen+8]
-	valLen := binary.BigEndian.Uint32(bc[keyLen+8 : keyLen+8+4])
+
+	// read 1 byte of Operation
+	cmd.Operation = bc[4]
+
+	// read 2 bytes of KeyLen
+	keyLen := binary.BigEndian.Uint16(bc[5:7])
+
+	// read KeyLen bytes of Key
+	cmd.Key = bc[7 : 7+keyLen]
+
+	// read 4 bytes of ValLen
+	valLen := binary.BigEndian.Uint32(bc[7+keyLen : 7+keyLen+4])
+
+	// read valLen bytes of Val
 	if valLen != 0 {
-		cmd.Value = bc[keyLen+8+4 : keyLen+8+4+valLen]
+		cmd.Value = bc[7+keyLen+4 : 7+uint32(keyLen)+4+valLen]
 	}
+
 	return cmd
 }
 
 func (g *GenericCommand) ToBytesCommand() BytesCommand {
-	b := make([]byte, 4+4+len(g.Key)+4+len(g.Value))
+	// CommandID (4 bytes), Operation (1 byte), KeyLen (2 bytes),
+	// Key (KeyLen bytes), ValueLen (4 bytes), Value (ValueLen bytes)
+	b := make([]byte, 4+1+2+len(g.Key)+4+len(g.Value))
+
+	// 4 bytes CommandID
 	binary.BigEndian.PutUint32(b, g.CommandID)
-	binary.BigEndian.PutUint32(b[4:], uint32(len(g.Key)))
-	copy(b[8:], g.Key)
-	binary.BigEndian.PutUint32(b[8+len(g.Key):], uint32(len(g.Value)))
-	copy(b[8+len(g.Key)+4:], g.Value)
+
+	// 1 byte Operation
+	b[4] = g.Operation
+
+	// 2 bytes KeyLen
+	binary.BigEndian.PutUint16(b[5:], uint16(len(g.Key)))
+
+	// KeyLen bytes Key
+	copy(b[7:], g.Key)
+
+	// 4 bytes ValLen
+	binary.BigEndian.PutUint32(b[7+len(g.Key):], uint32(len(g.Value)))
+
+	// ValLen bytes Val
+	copy(b[7+len(g.Key)+4:], g.Value)
+
 	return b
 }
 
 func (c *Command) ToBytesCommand() BytesCommand {
-	b := make([]byte, 4+4+4+4+len(c.Value))
-	binary.BigEndian.PutUint32(b, uint32(c.CommandID))
-	binary.BigEndian.PutUint32(b[4:], uint32(4))
-	binary.BigEndian.PutUint32(b[8:], uint32(c.Key))
-	binary.BigEndian.PutUint32(b[12:], uint32(len(c.Value)))
-	copy(b[16:], c.Value)
+	// CommandID (4 bytes), Operation (1 byte), KeyLen (2 bytes),
+	// Key (KeyLen bytes / 4 bytes since key is int in Command),
+	// ValueLen (4 bytes), Value (ValueLen bytes)
+	lenVal := len(c.Value)
+	b := make([]byte, 4+1+2+4+4+lenVal)
+
+	// writing CommandID
+	binary.BigEndian.PutUint32(b[0:4], uint32(c.CommandID))
+	// writing operation
+	b[4] = OP_WRITE
+	if len(c.Value) == 0 {
+		b[4] = OP_READ
+	}
+	// writing keyLen
+	binary.BigEndian.PutUint16(b[5:7], 4)
+	// writing key
+	binary.BigEndian.PutUint32(b[7:11], uint32(c.Key))
+	// writing valLen
+	binary.BigEndian.PutUint32(b[11:15], uint32(lenVal))
+	// writing value
+	if lenVal > 0 {
+		copy(b[15:15+lenVal], c.Value)
+	}
 	return b
 }
 
@@ -71,11 +138,11 @@ func (g *GenericCommand) Empty() bool {
 }
 
 func (g *GenericCommand) IsRead() bool {
-	return len(g.Value) == 0
+	return g.Operation == OP_READ
 }
 
 func (g *GenericCommand) IsWrite() bool {
-	return len(g.Value) > 0
+	return g.Operation == OP_WRITE
 }
 
 func (g *GenericCommand) Equal(a *GenericCommand) bool {

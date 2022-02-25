@@ -106,7 +106,7 @@ func (n *node) handleRootWithCtx(ctx *fasthttp.RequestCtx)  {
 			return
 		}
 
-		log.Debugf("handling key %s", key)
+		log.Debugf("handling key %d", key)
 
 		cmd.Key = Key(key)
 		if ctx.IsPut() || ctx.IsPost() {

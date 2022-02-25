@@ -22,18 +22,15 @@ type Replica struct {
 func NewReplica(id paxi.ID) *Replica {
 	// parse paxi config to opaxos config
 	globalCfg := paxi.GetConfig()
-	cfg := InitConfig(&globalCfg)
 	roles := strings.Split(globalCfg.Roles[id], ",")
 
 	log.Debugf("instantiating a replica with role=%v", roles)
-	log.Debugf("config: %v", cfg)
 
 	r := new(Replica)
 	r.Node = paxi.NewNode(id)
-	r.OPaxos = NewOPaxos(r, &cfg)
+	r.OPaxos = NewOPaxos(r)
 
-	r.Register(paxi.BytesRequest{}, r.handleByteRequest)
-	r.Register(paxi.Request{}, r.handleRequest)
+	r.Register(&paxi.ClientBytesCommand{}, r.handleClientBytesCommand)
 
 	if r.OPaxos.IsProposer {
 		r.Register(P1b{}, r.HandlePrepareResponse)
@@ -59,12 +56,7 @@ func (r *Replica) RunWithWorker() {
 	r.Run()
 }
 
-func (r *Replica) handleRequest(m paxi.Request) {
-	// log.Debugf("Replica %s received %v\n", r.ID(), m)
-	r.OPaxos.HandleRequest(m.ToBytesRequest())
-}
-
-func (r *Replica) handleByteRequest(m paxi.BytesRequest) {
-	// log.Debugf("Replica %s received %v\n", r.ID(), m.Command.ToCommand())
-	r.OPaxos.HandleRequest(m)
+func (r *Replica) handleClientBytesCommand(m *paxi.ClientBytesCommand) {
+	log.Debugf("Replica %s receives command %x\n", r.ID(), m.Data)
+	r.OPaxos.HandleCommandRequest(m)
 }

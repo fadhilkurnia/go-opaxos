@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// Client interface provides get and put for key value store
+// Client interface provides get and put for key-value store client
 type Client interface {
 	Get(Key) (Value, error)
 	Put(Key, Value) error

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/ailidani/paxi/log"
 	"github.com/ailidani/paxi/opaxos"
 	"os"
 	"strconv"
@@ -32,6 +33,55 @@ func usage() string {
 
 var client paxi.Client
 var admin paxi.AdminClient
+
+func main() {
+	paxi.Init()
+
+	if *master != "" {
+		paxi.ConnectToMaster(*master, true, paxi.ID(*id))
+	}
+
+	admin = paxi.NewHTTPClient(paxi.ID(*id))
+
+	switch *algorithm {
+	case "paxos":
+		client = paxos.NewClient(paxi.ID(*id))
+
+	case "chain":
+		client = chain.NewClient()
+
+	case "opaxos":
+		client = opaxos.NewClient(paxi.ID(*id))
+
+	case "experiment":
+		var err error
+		client, err = paxi.NewRPClient(paxi.ID(*id))
+		if err != nil {
+			log.Fatalf("failed ot initialize client %s", err)
+		}
+
+	default:
+		client = paxi.NewHTTPClient(paxi.ID(*id))
+	}
+
+	if len(flag.Args()) > 0 {
+		run(flag.Args()[0], flag.Args()[1:])
+	} else {
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			fmt.Print("paxi $ ")
+			text, _ := reader.ReadString('\n')
+			words := strings.Fields(text)
+			if len(words) < 1 {
+				continue
+			}
+			cmd := words[0]
+			args := words[1:]
+
+			run(cmd, args)
+		}
+	}
+}
 
 func run(cmd string, args []string) {
 	switch cmd {
@@ -98,47 +148,5 @@ func run(cmd string, args []string) {
 		fallthrough
 	default:
 		fmt.Println(usage())
-	}
-}
-
-func main() {
-	paxi.Init()
-
-	if *master != "" {
-		paxi.ConnectToMaster(*master, true, paxi.ID(*id))
-	}
-
-	admin = paxi.NewHTTPClient(paxi.ID(*id))
-
-	switch *algorithm {
-	case "paxos":
-		client = paxos.NewClient(paxi.ID(*id))
-
-	case "chain":
-		client = chain.NewClient()
-
-	case "opaxos":
-		client = opaxos.NewClient(paxi.ID(*id))
-
-	default:
-		client = paxi.NewHTTPClient(paxi.ID(*id))
-	}
-
-	if len(flag.Args()) > 0 {
-		run(flag.Args()[0], flag.Args()[1:])
-	} else {
-		reader := bufio.NewReader(os.Stdin)
-		for {
-			fmt.Print("paxi $ ")
-			text, _ := reader.ReadString('\n')
-			words := strings.Fields(text)
-			if len(words) < 1 {
-				continue
-			}
-			cmd := words[0]
-			args := words[1:]
-
-			run(cmd, args)
-		}
 	}
 }

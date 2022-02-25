@@ -3,6 +3,7 @@ package paxi
 import (
 	"encoding/json"
 	"flag"
+	"net/url"
 	"os"
 
 	"github.com/ailidani/paxi/log"
@@ -14,6 +15,7 @@ var configFile = flag.String("config", "config.json", "Configuration file for pa
 type Config struct {
 	Addrs     map[ID]string `json:"address"`      // address for node communication
 	HTTPAddrs map[ID]string `json:"http_address"` // address for client server communication
+	RPCAddrs  map[ID]string `json:"rpc_address"`  // address for client server communication
 	Roles     map[ID]string `json:"roles"`        // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
 
 	StoragePath string `json:"storage_path"`
@@ -86,6 +88,15 @@ func (c Config) N() int {
 // Z returns total number of zones
 func (c Config) Z() int {
 	return c.z
+}
+
+func (c Config) GetRPCHost(id ID) string {
+	fullAddress := c.RPCAddrs[id]
+	address, err := url.Parse(fullAddress)
+	if err != nil {
+		log.Fatalf("failed to parse server address from config file: %s", err)
+	}
+	return address.Host
 }
 
 // String is implemented to print the config
