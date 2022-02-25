@@ -211,6 +211,8 @@ func (c *RPCClient) spinWriter() {
 				break
 			}
 			_, err = c.buffWriter.Write(append([]byte{COMMAND}, data...))
+		}
+		if !ok {
 			err = c.buffWriter.Flush()
 		}
 	}
