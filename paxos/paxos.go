@@ -441,7 +441,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.ClientBytesCommand, slot int, e *entr
 
 	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
 		gcmd := &paxi.GenericCommand{}
-		err := msgpack.Unmarshal(byteCmd.Data, &gcmd)
+		err := msgpack.Unmarshal((*byteCmd).Data, &gcmd)
 		if err != nil {
 			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
 		}
