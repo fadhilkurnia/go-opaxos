@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 const (
@@ -16,11 +17,14 @@ const (
 // Key (KeyLen bytes), ValueLen (4 bytes), Value (ValueLen bytes)
 type BytesCommand []byte
 
+// GenericCommand uses []byte as Key and Value
 type GenericCommand struct {
 	CommandID uint32
 	Operation uint8
 	Key       []byte
 	Value     []byte
+
+	SentAt int64 // timestamp in ns, filled and read by client only
 }
 
 func (b *BytesCommand) ToCommand() Command {
@@ -77,6 +81,12 @@ func (b *BytesCommand) ToGenericCommand() GenericCommand {
 	return cmd
 }
 
+func UnmarshalGenericCommand(buffer []byte) (*GenericCommand, error) {
+	cmd := &GenericCommand{}
+	err := msgpack.Unmarshal(buffer, cmd)
+	return cmd, err
+}
+
 func (g *GenericCommand) ToBytesCommand() BytesCommand {
 	// CommandID (4 bytes), Operation (1 byte), KeyLen (2 bytes),
 	// Key (KeyLen bytes), ValueLen (4 bytes), Value (ValueLen bytes)
@@ -101,6 +111,11 @@ func (g *GenericCommand) ToBytesCommand() BytesCommand {
 	copy(b[7+len(g.Key)+4:], g.Value)
 
 	return b
+}
+
+func (g *GenericCommand) Marshal() []byte {
+	ret, _ := msgpack.Marshal(g)
+	return ret
 }
 
 func (c *Command) ToBytesCommand() BytesCommand {

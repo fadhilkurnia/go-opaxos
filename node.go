@@ -78,8 +78,11 @@ func (n *node) Run() {
 		go n.handle()
 		go n.recv()
 	}
-	go n.rpc()
-	n.http()
+	if *ClientType == "default" || *ClientType == "" {
+		n.http()
+	} else {
+		n.rpc()
+	}
 }
 
 // recv receives messages from socket and pass to message channel

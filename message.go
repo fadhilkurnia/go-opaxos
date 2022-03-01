@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"github.com/ailidani/paxi/log"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -115,22 +116,27 @@ func (r ReadReply) String() string {
 	return fmt.Sprintf("ReadReply {cid=%d, val=%x}", r.CommandID, r.Value)
 }
 
+// CommandReply contains all the metadata from server
 type CommandReply struct {
-	OK           bool
-	EncodingTime int64
-	Slot         int
-	Ballot       string
-	Value        []byte
+	OK         bool
+	Ballot     string
+	Slot       int
+	EncodeTime int64 // time taken for secret-sharing, filled by server
+	SentAt     int64 // the time when client sent this command
+	Data       []byte
 }
 
-func UnmarshalCommandReply(bufer []byte) *CommandReply {
-	cr := CommandReply{}
-	_ = msgpack.Unmarshal(bufer, &cr)
-	return &cr
+func UnmarshalCommandReply(bufer []byte) (*CommandReply, error) {
+	cr := &CommandReply{}
+	err := msgpack.Unmarshal(bufer, cr)
+	return cr, err
 }
 
 func (m *CommandReply) Marshal() []byte {
-	b, _ := msgpack.Marshal(m)
+	b, err := msgpack.Marshal(m)
+	if err != nil {
+		log.Errorf("failed to marshal CommandReply %v", err)
+	}
 	return b
 }
 

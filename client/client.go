@@ -80,19 +80,21 @@ func main() {
 	}
 
 	var bench *paxi.Benchmark
-	if *newclient {
-		bench = paxi.NewBenchmarkWithDBFactory(paxi.RPCClientFactory{}.Init().WithServerID(paxi.ID(*id)).Async())
-	} else {
-		bench = paxi.NewBenchmark(d)
+	bench = paxi.NewBenchmark(d)
+
+	if *paxi.ClientType == "callback" {
+		bench.ClientFactory = paxi.RPCClientFactory{}.Init().WithServerID(paxi.ID(*id)).Async()
+	}
+	if *paxi.ClientType == "pipeline" {
+		bench.NBClientFactory = paxi.DefaultDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
+	}
+	if *paxi.ClientType == "unix" {
+		bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
 	}
 
 	if *load {
 		bench.Load()
 	} else {
-		if *newclient {
-			bench.RunAsyncClient()
-		} else {
-			bench.Run()
-		}
+		bench.Run()
 	}
 }

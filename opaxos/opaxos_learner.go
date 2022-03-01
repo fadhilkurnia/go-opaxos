@@ -1,8 +1,10 @@
 package opaxos
 
 import (
+	"encoding/binary"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"github.com/vmihailenco/msgpack/v5"
 	"time"
 )
 
@@ -29,37 +31,71 @@ func (op *OPaxos) exec() {
 
 		// only learner that also a proposer that can execute the command
 		// since it has clear command, not the secret-shared command
-		value := paxi.Value{}
-		var cmd paxi.Command
+		var cmdReply paxi.CommandReply
+
 		if op.IsLearner && op.IsProposer {
-			cmd = e.command.ToCommand()
+			cmdReply = op.execCommands(e.command.BytesCommand, op.execute, e)
 
-			//if err := op.storage.ClearValue(op.execute); err != nil {
-			//	log.Errorf("failed to clear executed message %v", err)
-			//}
-
-			value = op.Execute(cmd)
-			log.Debugf("cmd=%v, value=%x", cmd, value)
-		}
-
-		if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-			reply := paxi.CommandReply{
-				OK:           true,
-				EncodingTime: e.ssTime,
-				Slot:         op.execute,
-				Ballot:       e.ballot.String(),
-				Value:        value,
+			if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
+				err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
+				if err != nil {
+					log.Errorf("failed to send CommandReply %s", err)
+				}
+				e.command.RPCMessage = nil
+				log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
 			}
-			err := e.command.RPCMessage.SendReply(reply.Marshal())
-			if err != nil {
-				log.Errorf("failed to send CommandReply %s", err)
-			}
-			e.command.RPCMessage = nil
-			log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
 		}
 
 		// TODO clean up the log periodically
 		delete(op.log, op.execute)
 		op.execute++
 	}
+}
+
+// execCommands parse cmd since it can be any type of command
+// depends on the client type
+func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
+	var cmd paxi.Command
+
+	// by default we do not send all the data, to make the response compact
+	reply := paxi.CommandReply{
+		OK:         true,
+		Ballot:     "", // unused for now (always empty)
+		Slot:       0,  // unused for now (always empty)
+		EncodeTime: 0,
+		SentAt:     0,
+		Data:       nil,
+	}
+
+	if *paxi.ClientType == "default" || *paxi.ClientType == "" || *paxi.ClientType == "callback" {
+		cmd = byteCmd.ToCommand()
+
+	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
+		gcmd := &paxi.GenericCommand{}
+		err := msgpack.Unmarshal(*byteCmd, &gcmd)
+		if err != nil {
+			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
+		}
+		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
+		cmd.Value = gcmd.Value
+		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
+
+	} else {
+		log.Errorf("unknown client type, dooes not know how to handle the command")
+		reply.OK = false
+	}
+
+	if *paxi.GatherSecretShareTime {
+		reply.EncodeTime = e.ssTime
+	}
+
+	value := op.Execute(cmd)
+
+	// reply with data for write operation
+	if cmd.Value == nil {
+		reply.Data = value
+	}
+
+	log.Debugf("cmd=%v, value=%x", cmd, value)
+	return reply
 }

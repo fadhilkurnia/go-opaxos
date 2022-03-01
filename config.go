@@ -10,6 +10,7 @@ import (
 )
 
 var configFile = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
+var GatherSecretShareTime = flag.Bool("sstimeon", false, "Whether the server need to return the secret-sharing encoding time or not")
 
 // Config contains every system configuration
 type Config struct {
@@ -97,6 +98,15 @@ func (c Config) GetRPCHost(id ID) string {
 		log.Fatalf("failed to parse server address from config file: %s", err)
 	}
 	return address.Host
+}
+
+func (c Config) GetRPCPort(id ID) string {
+	fullAddress := c.RPCAddrs[id]
+	address, err := url.Parse(fullAddress)
+	if err != nil {
+		log.Fatalf("failed to parse server address from config file: %s", err)
+	}
+	return address.Port()
 }
 
 // String is implemented to print the config

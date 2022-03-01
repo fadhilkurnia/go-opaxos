@@ -156,7 +156,7 @@ func (t *tcp) Listen() {
 						err := decoder.Decode(&m)
 						if err != nil {
 							if err == io.EOF {
-								log.Errorf("connection is closed from the other end %v", err)
+								log.Infof("connection is closed from the other end %v", err)
 								return
 							}
 							log.Error(err)

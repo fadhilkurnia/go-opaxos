@@ -127,6 +127,26 @@ func (m *RPCMessage) SendReply(result []byte) error {
 	return response.Serialize(m.Reply)
 }
 
+// SendBytesReply do not encapsulate the result with RPCMessage
+// length + raw bytes data
+func (m *RPCMessage) SendBytesReply(result []byte) error {
+	resLenBuff := make([]byte, 4)
+	resLen := len(result)
+
+	if err := m.Reply.WriteByte(COMMAND); err != nil {
+		return err
+	}
+	binary.BigEndian.PutUint32(resLenBuff, uint32(resLen))
+	if _, err := m.Reply.Write(resLenBuff); err != nil {
+		return err
+	}
+	if _, err := m.Reply.Write(result); err != nil {
+		return err
+	}
+	return m.Reply.Flush()
+}
+
+
 func (m *RPCMessage) String() string {
 	return fmt.Sprintf("RPCMessage{id: %d, len: %d, data: %x}", m.MessageID, m.MessageLen, m.Data)
 }

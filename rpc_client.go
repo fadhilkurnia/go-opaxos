@@ -306,8 +306,11 @@ func (c *RPCClient) Get(key Key) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	reply := UnmarshalCommandReply(resp)
-	return reply.Value, nil
+	reply, err := UnmarshalCommandReply(resp)
+	if err != nil {
+		return nil, err
+	}
+	return reply.Data, nil
 }
 
 func (c *RPCClient) Put(key Key, value Value) error {
@@ -373,7 +376,8 @@ func (c *RPCClient) AsyncRead(key []byte, callback func(*CommandReply)) {
 		})
 		return
 	}
-	callback(UnmarshalCommandReply(resp))
+	reply, _ := UnmarshalCommandReply(resp)
+	callback(reply)
 }
 
 func (c *RPCClient) AsyncWrite(key, value []byte, callback func(*CommandReply)) {
@@ -392,7 +396,7 @@ func (c *RPCClient) AsyncWrite(key, value []byte, callback func(*CommandReply)) 
 	ch := c.enqueueMessage(msg)
 	resp := <-ch
 
-	cr := UnmarshalCommandReply(resp.Data)
+	cr, _ := UnmarshalCommandReply(resp.Data)
 	callback(cr)
 }
 
@@ -416,3 +420,287 @@ func (c *RPCClient) Write(key, value []byte) (interface{}, error) {
 }
 
 // ===== end interface implementation for DB interface =================
+
+
+// ========================================================================================================================================
+
+type NonBlockingDBClient interface {
+	Init(id ID) (NonBlockingDBClient, error)
+	SendCommand(interface{}) error
+	GetReceiverChannel() chan *CommandReply
+}
+
+type DefaultDBClientFactory struct {
+	serverID ID
+}
+
+func (DefaultDBClientFactory) Init() *DefaultDBClientFactory {
+	return &DefaultDBClientFactory{}
+}
+
+func (r *DefaultDBClientFactory) WithServerID(id ID) *DefaultDBClientFactory {
+	r.serverID = id
+	return r
+}
+
+func (r *DefaultDBClientFactory) Create() (NonBlockingDBClient, error) {
+	return NewDefaultDBClient(r.serverID)
+}
+
+// DefaultDBClient implements NonBlockingDBClient interface (client_type = "generic")
+// it does not store per-request metadata in the client side, put the metadata
+// in the message for analytical purposes.
+// pros: no state management in client
+// cons: message become bigger with additional metadata (sentAt, encodeTime, etc.)
+// request message: paxi.GenericCommand
+// response message: paxi.CommandReply
+type DefaultDBClient struct {
+	NonBlockingDBClient
+
+	connection net.Conn
+	buffWriter *bufio.Writer
+	buffReader *bufio.Reader
+
+	responseCh chan *CommandReply
+}
+
+func NewDefaultDBClient(serverID ID) (NonBlockingDBClient, error) {
+	var err error
+	c := new(DefaultDBClient)
+
+	c.connection, err = net.Dial("tcp", GetConfig().GetRPCHost(serverID))
+	if err != nil {
+		return nil, err
+	}
+	c.buffWriter = bufio.NewWriter(c.connection)
+	c.buffReader = bufio.NewReader(c.connection)
+	c.responseCh = make(chan *CommandReply, 4096)
+
+	go c._putResponseToChannel()
+
+	return c, nil
+}
+
+func (c *DefaultDBClient) _putResponseToChannel() {
+	defer c.connection.Close()
+
+	var err error = nil
+	var firstByte byte
+	var respLen uint32
+	var respLenByte [4]byte
+	var msgBuff []byte
+	var resp *CommandReply
+
+	//	get response from wire, parse, put to channel
+	for err == nil {
+		firstByte, err = c.buffReader.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				log.Fatal("server is closing the connection.")
+				break
+			}
+			log.Fatalf("fail to read byte from server, terminating the connection. %s", err.Error())
+			break
+		}
+
+		if firstByte == COMMAND {
+			_, err = io.ReadAtLeast(c.buffReader, respLenByte[:], 4)
+			if err != nil {
+				log.Errorf("fail to read command length %v", err)
+				break
+			}
+
+			respLen = binary.BigEndian.Uint32(respLenByte[:])
+			if respLen > uint32(len(msgBuff)) {
+				msgBuff = make([]byte, respLen)
+			}
+			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
+			if err != nil {
+				log.Errorf("fail to read response data %v", err)
+				break
+			}
+
+			log.Debugf("len=%x(%d) data=%x", respLenByte, respLen, msgBuff)
+
+			resp, err = UnmarshalCommandReply(msgBuff[:respLen])
+			if err != nil {
+				log.Errorf("fail to unmarshal CommandReply %v, %x", err, msgBuff)
+				break
+			}
+
+			c.responseCh <- resp
+		}
+	}
+}
+
+// SendCommand sends paxi.GenericCommand to rpc server
+// request message: GenericCommand
+// response message: CommandResponse
+// check paxi.node.handleGenericCommand for the receiver implementation
+func (c *DefaultDBClient) SendCommand(req interface{}) error {
+	cmd := req.(GenericCommand)
+	cmdBytes := cmd.Marshal()
+
+	buff := make([]byte, 5)
+	buff[0] = COMMAND
+	binary.BigEndian.PutUint32(buff[1:], uint32(len(cmdBytes)))
+
+	buff = append(buff, cmdBytes...)
+
+	_, err := c.buffWriter.Write(buff)
+	if err != nil {
+		return err
+	}
+
+	return c.buffWriter.Flush()
+}
+
+func (c *DefaultDBClient) GetReceiverChannel() chan *CommandReply {
+	return c.responseCh
+}
+
+// ========================================================================================================================================
+
+type UDSDBClientFactory struct {
+	serverID ID
+}
+
+func (UDSDBClientFactory) Init() *UDSDBClientFactory {
+	return &UDSDBClientFactory{}
+}
+
+func (r *UDSDBClientFactory) WithServerID(id ID) *UDSDBClientFactory {
+	r.serverID = id
+	return r
+}
+
+func (r *UDSDBClientFactory) Create() (NonBlockingDBClient, error) {
+	return NewUDSDBClient(r.serverID)
+}
+
+// UDSDBClient implements NonBlockingDBClient interface (client_type = "generic")
+// it does not store per-request metadata in the client side, put the metadata
+// in the message for analytical purposes.
+// pros: no state management in client
+// cons: message become bigger with additional metadata (sentAt, encodeTime, etc.)
+// request message: paxi.GenericCommand
+// response message: paxi.CommandReply
+type UDSDBClient struct {
+	NonBlockingDBClient
+
+	connection net.Conn
+	buffWriter *bufio.Writer
+	buffReader *bufio.Reader
+
+	responseCh chan *CommandReply
+}
+
+func NewUDSDBClient(serverID ID) (NonBlockingDBClient, error) {
+	var err error
+	c := new(UDSDBClient)
+
+	socketAddress := fmt.Sprintf("/tmp/%s.lock", GetConfig().GetRPCPort(serverID))
+
+	c.connection, err = net.Dial("unix", socketAddress)
+	if err != nil {
+		return nil, err
+	}
+	c.buffWriter = bufio.NewWriter(c.connection)
+	c.buffReader = bufio.NewReader(c.connection)
+	c.responseCh = make(chan *CommandReply, 4096)
+
+	go c._putResponseToChannel()
+
+	return c, nil
+}
+
+func (c *UDSDBClient) _putResponseToChannel() {
+	defer c.connection.Close()
+
+	var err error = nil
+	var firstByte byte
+	var respLen uint32
+	var respLenByte [4]byte
+	var msgBuff []byte
+	var resp *CommandReply
+
+	//	get response from wire, parse, put to channel
+	for err == nil {
+		firstByte, err = c.buffReader.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				log.Fatal("server is closing the connection.")
+				break
+			}
+			log.Fatalf("fail to read byte from server, terminating the connection. %s", err.Error())
+			break
+		}
+
+		if firstByte == COMMAND {
+			_, err = io.ReadAtLeast(c.buffReader, respLenByte[:], 4)
+			if err != nil {
+				log.Errorf("fail to read command length %v", err)
+				break
+			}
+
+			respLen = binary.BigEndian.Uint32(respLenByte[:])
+			if respLen > uint32(len(msgBuff)) {
+				msgBuff = make([]byte, respLen)
+			}
+			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
+			if err != nil {
+				log.Errorf("fail to read response data %v", err)
+				break
+			}
+
+			log.Debugf("len=%x(%d) data=%x", respLenByte, respLen, msgBuff)
+
+			resp, err = UnmarshalCommandReply(msgBuff[:respLen])
+			if err != nil {
+				log.Errorf("fail to unmarshal CommandReply %v, %x", err, msgBuff)
+				break
+			}
+
+			c.responseCh <- resp
+		}
+	}
+}
+
+
+// SendCommand sends paxi.GenericCommand to rpc server
+// request message: GenericCommand
+// response message: CommandResponse
+// check paxi.node.handleGenericCommand for the receiver implementation
+func (c *UDSDBClient) SendCommand(req interface{}) error {
+	cmd := req.(GenericCommand)
+	cmdBytes := cmd.Marshal()
+
+	buff := make([]byte, 5)
+	buff[0] = COMMAND
+	binary.BigEndian.PutUint32(buff[1:], uint32(len(cmdBytes)))
+
+	buff = append(buff, cmdBytes...)
+
+	_, err := c.buffWriter.Write(buff)
+	if err != nil {
+		return err
+	}
+
+	return c.buffWriter.Flush()
+}
+
+func (c *UDSDBClient) GetReceiverChannel() chan *CommandReply {
+	return c.responseCh
+}
+
+
+// ========================================================================================================================================
+
+// StatefulDBClient implements NonBlockingDBClient interface
+// it store per-request metadata in the client side using map
+// pros: smaller message size
+// cons: overhead for concurrency safe metadata management in the client
+// TODO: implement this
+type StatefulDBClient struct {
+	NonBlockingDBClient
+}

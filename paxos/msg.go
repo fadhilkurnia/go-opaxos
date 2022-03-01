@@ -25,7 +25,7 @@ func (m P1a) String() string {
 
 // CommandBallot combines each command with its ballot number
 type CommandBallot struct {
-	Command paxi.Command
+	Command []byte
 	Ballot  paxi.Ballot
 }
 
@@ -48,7 +48,7 @@ func (m P1b) String() string {
 type P2a struct {
 	Ballot  paxi.Ballot
 	Slot    int
-	Command paxi.Command
+	Command []byte
 }
 
 func (m P2a) String() string {
@@ -70,9 +70,9 @@ func (m P2b) String() string {
 type P3 struct {
 	Ballot  paxi.Ballot
 	Slot    int
-	Command paxi.Command
+	//Command paxi.Command
 }
 
 func (m P3) String() string {
-	return fmt.Sprintf("P3 {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
+	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
 }
