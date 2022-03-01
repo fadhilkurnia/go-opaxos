@@ -63,7 +63,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		Ballot:     "", // unused for now (always empty)
 		Slot:       0,  // unused for now (always empty)
 		EncodeTime: 0,
-		SentAt:     0,
+		SentAt:     time.Now(),
 		Data:       nil,
 	}
 

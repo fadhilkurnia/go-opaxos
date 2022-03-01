@@ -36,7 +36,7 @@ func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.Clien
 	}
 }
 
-func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, int64, error) {
+func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, time.Duration, error) {
 	var err error
 	var secretShares [][]byte
 
@@ -58,8 +58,8 @@ func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, int
 
 	if err != nil {
 		log.Errorf("failed to split secret: %v\n", err)
-		return nil, ssTime.Nanoseconds(), err
+		return nil, ssTime, err
 	}
 
-	return secretShares, ssTime.Nanoseconds(), nil
+	return secretShares, ssTime, nil
 }

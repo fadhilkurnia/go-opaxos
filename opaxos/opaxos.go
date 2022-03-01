@@ -15,7 +15,7 @@ type entry struct {
 	commit    bool                     // commit indicates whether this entry is already committed or not
 	quorum    *paxi.Quorum             // phase-2 quorum
 	timestamp time.Time                // timestamp when the command in this entry is proposed
-	ssTime    int64                    // time needed for secret-sharing process (in ns)
+	ssTime    time.Duration            // time needed for secret-sharing process
 
 	commandShares []*CommandShare // collection of command from multiple acceptors, with the same slot number
 }

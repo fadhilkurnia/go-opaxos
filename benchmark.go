@@ -468,13 +468,11 @@ func (b *Benchmark) RunPipelineClient() {
 				respCounter := 0
 
 				for resp := range receiverCh {
-					now := time.Now()
-					sentTime := time.UnixMicro(resp.SentAt)
-					temp := now.Sub(sentTime)
+					temp := time.Since(resp.SentAt)
 					latencies <- temp
 					respCounter++
 
-					log.Debugf("latency: %v | %v %v ", temp, sentTime, now)
+					log.Debugf("latency: %v", temp)
 
 					select {
 					case totalMsgSent = <-clientFinishFlag:
@@ -505,13 +503,13 @@ func (b *Benchmark) RunPipelineClient() {
 						Operation: OP_WRITE,
 						Key:       keyBuff,
 						Value:     value,
-						SentAt:    time.Now().UnixMicro(),
+						SentAt:    time.Now(),
 					})
 				} else { // issuing read request
 					err = dbClient.SendCommand(GenericCommand{
 						Operation: OP_READ,
 						Key:       keyBuff,
-						SentAt:    time.Now().UnixMicro(),
+						SentAt:    time.Now(),
 					})
 				}
 

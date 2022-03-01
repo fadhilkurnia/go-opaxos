@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/ailidani/paxi/log"
+	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -121,8 +122,8 @@ type CommandReply struct {
 	OK         bool
 	Ballot     string
 	Slot       int
-	EncodeTime int64 // time taken for secret-sharing, filled by server
-	SentAt     int64 // the time when client sent this command
+	EncodeTime time.Duration // time taken for secret-sharing, filled by server
+	SentAt     time.Time     // the time when client sent this command
 	Data       []byte
 }
 

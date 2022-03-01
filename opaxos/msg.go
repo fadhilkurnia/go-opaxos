@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/ailidani/paxi"
+	"time"
 )
 
 func init() {
@@ -81,7 +82,7 @@ type SSBytesRequest struct {
 }
 
 type SecretSharedCommand struct {
-	*paxi.ClientBytesCommand          // pointer to the client's command
-	ssTime                   int64    // time taken to secret-share the command
-	ssCommands               [][]byte // the secret-shared commands
+	*paxi.ClientBytesCommand               // pointer to the client's command
+	ssTime                   time.Duration // time taken to secret-share the command
+	ssCommands               [][]byte      // the secret-shared commands
 }

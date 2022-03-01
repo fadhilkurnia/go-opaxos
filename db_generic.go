@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/vmihailenco/msgpack/v5"
+	"time"
 )
 
 const (
@@ -24,7 +25,7 @@ type GenericCommand struct {
 	Key       []byte
 	Value     []byte
 
-	SentAt int64 // timestamp in ns, filled and read by client only
+	SentAt time.Time // timestamp filled and read by client only
 }
 
 func (b *BytesCommand) ToCommand() Command {
