@@ -385,7 +385,7 @@ func (p *Paxos) exec() {
 		}
 		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
 
-		cmdReply := p.execCommands(e.command.BytesCommand, p.execute, e)
+		cmdReply := p.execCommands(e.command, p.execute, e)
 
 		//if err := p.storage.ClearValue(p.execute); err != nil {
 		//	log.Errorf("failed to clear executed message %v", err)
@@ -424,7 +424,7 @@ func (p *Paxos) exec() {
 //	p.requests = make([]*paxi.Request, 0)
 //}
 
-func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
+func (p *Paxos) execCommands(byteCmd *paxi.ClientBytesCommand, slot int, e *entry) paxi.CommandReply {
 	var cmd paxi.Command
 
 	reply := paxi.CommandReply{
@@ -441,12 +441,13 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 
 	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
 		gcmd := &paxi.GenericCommand{}
-		err := msgpack.Unmarshal(*byteCmd, &gcmd)
+		err := msgpack.Unmarshal(byteCmd.Data, &gcmd)
 		if err != nil {
 			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
 		}
 		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
 		cmd.Value = gcmd.Value
+		log.Debugf("sent time %v", gcmd.SentAt)
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
 
 	} else {
