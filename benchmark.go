@@ -502,6 +502,7 @@ func (b *Benchmark) RunPipelineClient() {
 					// SendCommand is a non-blocking method, it returns immediately
 					// without waiting for the response
 					now := time.Now()
+					log.Debugf("sending write command at %v", now.UnixNano())
 					err = dbClient.SendCommand(GenericCommand{
 						Operation: OP_WRITE,
 						Key:       keyBuff,
@@ -510,6 +511,7 @@ func (b *Benchmark) RunPipelineClient() {
 					})
 				} else { // issuing read request
 					now := time.Now()
+					log.Debugf("sending read command at %v", now.UnixNano())
 					err = dbClient.SendCommand(GenericCommand{
 						Operation: OP_READ,
 						Key:       keyBuff,

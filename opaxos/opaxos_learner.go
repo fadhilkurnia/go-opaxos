@@ -81,7 +81,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
 
 	} else {
-		log.Errorf("unknown client type, dooes not know how to handle the command")
+		log.Errorf("unknown client type, does not know how to handle the command")
 		reply.OK = false
 	}
 
