@@ -469,11 +469,12 @@ func (b *Benchmark) RunPipelineClient() {
 
 				for resp := range receiverCh {
 					now := time.Now()
-					temp := now.Sub(resp.SentAt)
+					sent := time.Unix(0, resp.SentAt)
+					temp := now.Sub(sent)
 					latencies <- temp
 					respCounter++
 
-					log.Debugf("latency: %v | %v | %v", temp, now, resp.SentAt)
+					log.Debugf("latency: %v | %v | %v", temp, now.UnixNano(), sent.UnixNano())
 
 					select {
 					case totalMsgSent = <-clientFinishFlag:
@@ -500,17 +501,19 @@ func (b *Benchmark) RunPipelineClient() {
 				if rand.Float64() < b.W {
 					// SendCommand is a non-blocking method, it returns immediately
 					// without waiting for the response
+					now := time.Now()
 					err = dbClient.SendCommand(GenericCommand{
 						Operation: OP_WRITE,
 						Key:       keyBuff,
 						Value:     value,
-						SentAt:    time.Now(),
+						SentAt:    now.UnixNano(),
 					})
 				} else { // issuing read request
+					now := time.Now()
 					err = dbClient.SendCommand(GenericCommand{
 						Operation: OP_READ,
 						Key:       keyBuff,
-						SentAt:    time.Now(),
+						SentAt:    now.UnixNano(),
 					})
 				}
 

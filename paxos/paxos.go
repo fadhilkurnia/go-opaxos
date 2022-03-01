@@ -6,7 +6,6 @@ import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/vmihailenco/msgpack/v5"
-	"time"
 )
 
 // entry in log
@@ -433,7 +432,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 		Ballot:     "", // unused for now (always empty)
 		Slot:       0,  // unused for now (always empty)
 		EncodeTime: 0,
-		SentAt:     time.Now(),
+		SentAt:     0,
 		Data:       nil,
 	}
 

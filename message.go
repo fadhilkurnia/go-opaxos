@@ -123,7 +123,7 @@ type CommandReply struct {
 	Ballot     string
 	Slot       int
 	EncodeTime time.Duration // time taken for secret-sharing, filled by server
-	SentAt     time.Time     // the time when client sent this command
+	SentAt     int64         // the time in unixnano when client sent this command
 	Data       []byte
 }
 
