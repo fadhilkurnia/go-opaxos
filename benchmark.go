@@ -472,6 +472,8 @@ func (b *Benchmark) RunPipelineClient() {
 					latencies <- temp
 					respCounter++
 
+					log.Debugf("latency: %v", temp)
+
 					select {
 					case totalMsgSent = <-clientFinishFlag:
 					default:
