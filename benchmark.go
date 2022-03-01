@@ -468,11 +468,12 @@ func (b *Benchmark) RunPipelineClient() {
 				respCounter := 0
 
 				for resp := range receiverCh {
-					temp := time.Since(resp.SentAt)
+					now := time.Now()
+					temp := now.Sub(resp.SentAt)
 					latencies <- temp
 					respCounter++
 
-					log.Debugf("latency: %v", temp)
+					log.Debugf("latency: %v | %v | %v", temp, now, resp.SentAt)
 
 					select {
 					case totalMsgSent = <-clientFinishFlag:
