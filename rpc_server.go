@@ -159,17 +159,14 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 	clientReader := bufio.NewReader(conn)
 	clientWriter := bufio.NewWriter(conn)
 
-	var reqLen uint32
-	var reqLenBuff [4]byte
-	var reqBuff []byte
 	var err error
-	var firstByte byte
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket
 		// thus, it is fine to have this busy-loop
 		// read the command type, then the command itself.
 
+		var firstByte byte
 		firstByte, err = clientReader.ReadByte()
 		if err != nil {
 			if err == io.EOF {
@@ -181,6 +178,10 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 		}
 
 		if firstByte == COMMAND {
+			var reqLen uint32
+			var reqLenBuff [4]byte
+			var reqBuff []byte
+
 			_, err = io.ReadAtLeast(clientReader, reqLenBuff[:], 4)
 			if err != nil {
 				log.Errorf("fail to read command length %v", err)
@@ -188,9 +189,7 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 			}
 
 			reqLen = binary.BigEndian.Uint32(reqLenBuff[:])
-			if reqLen > uint32(len(reqBuff)) {
-				reqBuff = make([]byte, reqLen)
-			}
+			reqBuff = make([]byte, reqLen)
 			_, err = io.ReadAtLeast(clientReader, reqBuff[:reqLen], int(reqLen))
 			if err != nil {
 				log.Errorf("fail to read command data %v", err)

@@ -485,14 +485,15 @@ func (c *DefaultDBClient) _putResponseToChannel() {
 	defer c.connection.Close()
 
 	var err error = nil
-	var firstByte byte
-	var respLen uint32
-	var respLenByte [4]byte
-	var msgBuff []byte
-	var resp *CommandReply
 
 	//	get response from wire, parse, put to channel
 	for err == nil {
+		var firstByte byte
+		var respLen uint32
+		var respLenByte [4]byte
+		var msgBuff []byte
+		var resp *CommandReply
+
 		firstByte, err = c.buffReader.ReadByte()
 		if err != nil {
 			if err == io.EOF {
@@ -511,9 +512,8 @@ func (c *DefaultDBClient) _putResponseToChannel() {
 			}
 
 			respLen = binary.BigEndian.Uint32(respLenByte[:])
-			if respLen > uint32(len(msgBuff)) {
-				msgBuff = make([]byte, respLen)
-			}
+			msgBuff = make([]byte, respLen)
+
 			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
 			if err != nil {
 				log.Errorf("fail to read response data %v", err)
@@ -618,14 +618,15 @@ func (c *UDSDBClient) _putResponseToChannel() {
 	defer c.connection.Close()
 
 	var err error = nil
-	var firstByte byte
-	var respLen uint32
-	var respLenByte [4]byte
-	var msgBuff []byte
-	var resp *CommandReply
 
 	//	get response from wire, parse, put to channel
 	for err == nil {
+		var firstByte byte
+		var respLen uint32
+		var respLenByte [4]byte
+		var msgBuff []byte
+		var resp *CommandReply
+
 		firstByte, err = c.buffReader.ReadByte()
 		if err != nil {
 			if err == io.EOF {
@@ -644,9 +645,7 @@ func (c *UDSDBClient) _putResponseToChannel() {
 			}
 
 			respLen = binary.BigEndian.Uint32(respLenByte[:])
-			if respLen > uint32(len(msgBuff)) {
-				msgBuff = make([]byte, respLen)
-			}
+			msgBuff = make([]byte, respLen)
 			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
 			if err != nil {
 				log.Errorf("fail to read response data %v", err)

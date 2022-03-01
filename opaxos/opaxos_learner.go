@@ -34,7 +34,7 @@ func (op *OPaxos) exec() {
 		var cmdReply paxi.CommandReply
 
 		if op.IsLearner && op.IsProposer {
-			cmdReply = op.execCommands(e.command, op.execute, e)
+			cmdReply = op.execCommands(e.command.BytesCommand, op.execute, e)
 
 			if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
 				err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
@@ -54,7 +54,7 @@ func (op *OPaxos) exec() {
 
 // execCommands parse cmd since it can be any type of command
 // depends on the client type
-func (op *OPaxos) execCommands(byteCmd *paxi.ClientBytesCommand, slot int, e *entry) paxi.CommandReply {
+func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
 	var cmd paxi.Command
 
 	// by default we do not send all the data, to make the response compact
@@ -72,7 +72,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.ClientBytesCommand, slot int, e *en
 
 	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
 		gcmd := &paxi.GenericCommand{}
-		err := msgpack.Unmarshal((*byteCmd).Data, &gcmd)
+		err := msgpack.Unmarshal(*byteCmd, &gcmd)
 		if err != nil {
 			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
 		}
