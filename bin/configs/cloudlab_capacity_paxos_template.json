@@ -37,8 +37,8 @@
   },
   "thrifty": false,
   "policy": "majority",
-  "chan_buffer_size": 1024,
-  "buffer_size": 1024,
+  "chan_buffer_size": 40960,
+  "buffer_size": 40960,
   "multiversion": false,
   "benchmark": {
     "T": 30,

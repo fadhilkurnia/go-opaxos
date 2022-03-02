@@ -651,7 +651,7 @@ func (c *UDSDBClient) _putResponseToChannel() {
 				log.Errorf("fail to read response data %v", err)
 				break
 			}
-			
+
 			resp, err = UnmarshalCommandReply(msgBuff[:respLen])
 			if err != nil {
 				log.Errorf("fail to unmarshal CommandReply %v, %x", err, msgBuff)

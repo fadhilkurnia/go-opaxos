@@ -474,7 +474,7 @@ func (b *Benchmark) RunPipelineClient() {
 					latencies <- temp
 					respCounter++
 
-					log.Debugf("latency: %v | %v | %v or %v", temp, now.UnixNano(), sent.UnixNano(), resp.SentAt)
+					log.Debugf("latency: %v | %v | %v ", temp, now.UnixNano(), sent.UnixNano())
 
 					select {
 					case totalMsgSent = <-clientFinishFlag:
