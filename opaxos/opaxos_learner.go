@@ -42,6 +42,8 @@ func (op *OPaxos) exec() {
 				}
 				e.command.RPCMessage = nil
 				//log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
+			} else {
+				log.Errorf("missing RPCMessage! $v", e.command.Data)
 			}
 		}
 

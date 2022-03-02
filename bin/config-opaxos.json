@@ -45,7 +45,7 @@
         "N": 0,
         "K": 9,
         "W": 1.0,
-        "Throttle": 40000,
+        "Throttle": 4000,
         "Concurrency": 1,
         "Distribution": "uniform",
         "LinearizabilityCheck": true,

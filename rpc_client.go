@@ -474,7 +474,7 @@ func NewDefaultDBClient(serverID ID) (NonBlockingDBClient, error) {
 	}
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
-	c.responseCh = make(chan *CommandReply, 4096)
+	c.responseCh = make(chan *CommandReply, GetConfig().ChanBufferSize)
 
 	go c._putResponseToChannel()
 
@@ -607,7 +607,7 @@ func NewUDSDBClient(serverID ID) (NonBlockingDBClient, error) {
 	}
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
-	c.responseCh = make(chan *CommandReply, 4096)
+	c.responseCh = make(chan *CommandReply, GetConfig().ChanBufferSize)
 
 	go c._putResponseToChannel()
 
@@ -682,6 +682,8 @@ func (c *UDSDBClient) SendCommand(req interface{}) error {
 	if err != nil {
 		return err
 	}
+
+	c.buffWriter.Buffered()
 
 	return c.buffWriter.Flush()
 }

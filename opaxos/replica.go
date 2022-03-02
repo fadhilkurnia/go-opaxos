@@ -30,19 +30,12 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Node = paxi.NewNode(id)
 	r.OPaxos = NewOPaxos(r)
 
-	r.Register(&paxi.ClientBytesCommand{}, r.handleClientBytesCommand)
-
-	if r.OPaxos.IsProposer {
-		r.Register(P1b{}, r.HandlePrepareResponse)
-		r.Register(P2b{}, r.HandleProposeResponse)
-	}
-	if r.OPaxos.IsAcceptor {
-		r.Register(P2a{}, r.HandleProposeRequest)
-		r.Register(P1a{}, r.HandlePrepareRequest)
-	}
-	if r.OPaxos.IsLearner {
-		r.Register(P3{}, r.HandleCommitRequest)
-	}
+	r.Register(&paxi.ClientBytesCommand{}, r.EnqueueClientRequests)
+	r.Register(P1b{}, r.EnqueueProtocolMessages)
+	r.Register(P2b{}, r.EnqueueProtocolMessages)
+	r.Register(P2a{}, r.EnqueueProtocolMessages)
+	r.Register(P1a{}, r.EnqueueProtocolMessages)
+	r.Register(P3{}, r.EnqueueProtocolMessages)
 
 	return r
 }
@@ -53,10 +46,14 @@ func (r *Replica) RunWithWorker() {
 			go r.OPaxos.initAndRunSecretSharingWorker()
 		}
 	}
+	go r.OPaxos.run()
 	r.Run()
 }
 
-func (r *Replica) handleClientBytesCommand(m *paxi.ClientBytesCommand) {
-	log.Debugf("Replica %s receives command %x\n", r.ID(), m.Data)
-	r.OPaxos.HandleCommandRequest(m)
+func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
+	r.OPaxos.protocolMessages <- pmsg
+}
+
+func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientBytesCommand) {
+	r.OPaxos.rawCommands <- ccmd
 }

@@ -1,8 +1,10 @@
 package opaxos
 
 import (
+	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -39,11 +41,13 @@ type OPaxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	numSSWorkers    int                           // number of workers to secret-share client's raw command
-	defaultSSWorker secretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
-	rawCommands     chan *paxi.ClientBytesCommand // raw commands, ready to be secret-shared
-	pendingCommands chan *SecretSharedCommand     // pending commands that will be proposed
-	requests        []*SecretSharedCommand
+	numSSWorkers         int                           // number of workers to secret-share client's raw command
+	defaultSSWorker      secretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
+	protocolMessages     chan interface{}              // prepare, propose, commit, etc
+	rawCommands          chan *paxi.ClientBytesCommand // raw commands from clients
+	ssJobs               chan *paxi.ClientBytesCommand // raw commands ready to be secret shared
+	pendingCommands      chan *SecretSharedCommand     // pending commands that will be proposed
+	onOffPendingCommands chan *SecretSharedCommand     // non nil pointer to pendingCommands after get response for phase 1
 
 	//rawRequests chan *paxi.BytesRequest // raw requests, ready to be secret-shared
 	//ssRequests  chan *SSBytesRequest    // phase 1 pending requests
@@ -73,21 +77,23 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 	log.Debugf("config: %v", cfg)
 
 	op := &OPaxos{
-		Node:            n,
-		config:          &cfg,
-		algorithm:       cfg.Protocol.SecretSharing,
-		log:             make(map[int]*entry, cfg.BufferSize),
-		slot:            -1,
-		execute:         0,
-		quorum:          paxi.NewQuorum(),
-		rawCommands:     make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
-		pendingCommands: make(chan *SecretSharedCommand, cfg.ChanBufferSize),
-		requests:        make([]*SecretSharedCommand, 0),
-		numSSWorkers:    maxInt(10, runtime.GOMAXPROCS(-1)),
-		K:               cfg.Protocol.Threshold,
-		N:               n.GetConfig().N(),
-		Q1:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
-		Q2:              func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum2) },
+		Node:                 n,
+		config:               &cfg,
+		algorithm:            cfg.Protocol.SecretSharing,
+		log:                  make(map[int]*entry, cfg.BufferSize),
+		slot:                 -1,
+		execute:              0,
+		quorum:               paxi.NewQuorum(),
+		protocolMessages:     make(chan interface{}, cfg.ChanBufferSize),
+		rawCommands:          make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
+		ssJobs:               make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
+		pendingCommands:      make(chan *SecretSharedCommand, cfg.ChanBufferSize),
+		onOffPendingCommands: nil,
+		numSSWorkers:         maxInt(10, runtime.GOMAXPROCS(-1)),
+		K:                    cfg.Protocol.Threshold,
+		N:                    n.GetConfig().N(),
+		Q1:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
+		Q2:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum2) },
 		//storage:         paxi.NewPersistentStorage(n.ID()),
 	}
 	roles := strings.Split(cfg.Roles[n.ID()], ",")
@@ -122,7 +128,7 @@ func (op *OPaxos) initAndRunSecretSharingWorker() {
 	}
 
 	worker := newWorker(op.algorithm, numShares, numThreshold)
-	worker.startProcessingInput(op.rawCommands, op.pendingCommands)
+	worker.startProcessingInput(op.ssJobs, op.pendingCommands)
 }
 
 func (op *OPaxos) initDefaultSecretSharingWorker() {
@@ -136,38 +142,76 @@ func (op *OPaxos) initDefaultSecretSharingWorker() {
 	op.defaultSSWorker = newWorker(op.algorithm, numShares, numThreshold)
 }
 
+// run is the main event processing loop
+// all commands from client and protocol messages processed here
+func (op *OPaxos) run() {
+	var err error
+	for err == nil {
+		select {
+		case rCmd := <-op.rawCommands:
+			op.ssJobs <- rCmd
+
+			// start phase 1 if this proposer has not started it previously
+			if !op.IsLeader && op.ballot.ID() != op.ID() {
+				op.Prepare()
+			}
+			break
+
+		// onOffPendingCommands is nil before this replica successfully running phase-1
+		// see OPaxos.HandleProposeResponse for more detail
+		case pCmd := <-op.onOffPendingCommands:
+			op.Propose(pCmd)
+			break
+
+		//	protocol messages have higher priority compared to
+		//	raw and pending commands
+		case pMsg := <-op.protocolMessages:
+			err = op.handleProtocolMessages(pMsg)
+			break
+		case pMsg := <-op.protocolMessages:
+			err = op.handleProtocolMessages(pMsg)
+			break
+		case pMsg := <-op.protocolMessages:
+			err = op.handleProtocolMessages(pMsg)
+			break
+		case pMsg := <-op.protocolMessages:
+			err = op.handleProtocolMessages(pMsg)
+			break
+		case pMsg := <-op.protocolMessages:
+			err = op.handleProtocolMessages(pMsg)
+			break
+		}
+	}
+
+	panic(fmt.Sprintf("opaxos exited its main loop: %v", err))
+}
+
+func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
+	switch reflect.TypeOf(pmsg) {
+	case reflect.TypeOf(P1a{}):
+		op.HandlePrepareRequest(pmsg.(P1a))
+		break
+	case reflect.TypeOf(P1b{}):
+		op.HandlePrepareResponse(pmsg.(P1b))
+		break
+	case reflect.TypeOf(P2a{}):
+		op.HandleProposeRequest(pmsg.(P2a))
+		break
+	case reflect.TypeOf(P2b{}):
+		op.HandleProposeResponse(pmsg.(P2b))
+		break
+	case reflect.TypeOf(P3{}):
+		op.HandleCommitRequest(pmsg.(P3))
+		break
+	default:
+		log.Errorf("unknown protocol messages")
+	}
+	return nil
+}
+
 func maxInt(a int, b int) int {
 	if a > b {
 		return a
 	}
 	return b
-}
-
-// HandleCommandRequest handles request and start phase 1 or phase 2
-func (op *OPaxos) HandleCommandRequest(r *paxi.ClientBytesCommand) {
-	if !op.IsProposer {
-		log.Warningf("non-proposer node %v receiving user request, ignoring it", op.ID())
-		return
-	}
-	if !op.IsLeader {
-		//op.rawCommands <- r
-		ss, ssTime, err := op.defaultSSWorker.secretShareCommand(r.Data)
-		if err != nil {
-			log.Errorf("failed to do secret sharing: %v", err)
-		}
-		op.requests = append(op.requests, &SecretSharedCommand{r, ssTime, ss})
-
-		// start phase 1 if this replica has not started it previously
-		if op.ballot.ID() != op.ID() {
-			op.Prepare()
-		}
-	} else {
-		//op.rawCommands <- r
-		//op.Propose(<-op.pendingCommands)
-		ss, ssTime, err := op.defaultSSWorker.secretShareCommand(r.Data)
-		if err != nil {
-			log.Errorf("failed to do secret sharing: %v", err)
-		}
-		op.Propose(&SecretSharedCommand{r, ssTime, ss})
-	}
 }

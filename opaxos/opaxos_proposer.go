@@ -89,7 +89,7 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
 		op.IsLeader = false
-		// TODO: forward message to the new leader
+		op.onOffPendingCommands = nil
 		return
 	}
 
@@ -107,11 +107,11 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			op.proposeUncommittedEntries()
 
 			// propose new commands, until it is empty
-			lenRequests := len(op.requests)
-			for i := 0; i < lenRequests; i++ {
-				op.Propose(op.requests[i])
+			for len(op.rawCommands) + len(op.pendingCommands) > 0 {
+				op.Propose(<-op.pendingCommands)
 			}
-			op.requests = make([]*SecretSharedCommand, 0)
+
+			op.onOffPendingCommands = op.pendingCommands
 		}
 	}
 }
@@ -203,12 +203,6 @@ func (op *OPaxos) proposeUncommittedEntries() {
 	}
 }
 
-// startProposer keep proposing secret-shared message from pendingCommands channel
-// until another proposer become a leader
-func (op *OPaxos) startProposingCommands() {
-
-}
-
 func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {
 	for slot, cmdShare := range acceptedCmdShares {
 		op.slot = paxi.Max(op.slot, slot)
@@ -242,6 +236,7 @@ func (op *OPaxos) HandleProposeResponse(m P2b) {
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
 		op.IsLeader = false
+		op.onOffPendingCommands = nil
 	}
 
 	if m.Ballot.ID() == op.ID() && m.Ballot == op.log[m.Slot].ballot {

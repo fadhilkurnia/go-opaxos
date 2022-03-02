@@ -10,6 +10,7 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
 		op.IsLeader = false
+		op.onOffPendingCommands = nil
 	}
 
 	// send command-shares to proposer, if previously this acceptor
