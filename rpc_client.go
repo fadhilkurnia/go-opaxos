@@ -638,6 +638,7 @@ func (c *UDSDBClient) _putResponseToChannel() {
 		}
 
 		if firstByte == COMMAND {
+			log.Debugf("waiting command length ...")
 			_, err = io.ReadAtLeast(c.buffReader, respLenByte[:], 4)
 			if err != nil {
 				log.Errorf("fail to read command length %v", err)
@@ -646,6 +647,7 @@ func (c *UDSDBClient) _putResponseToChannel() {
 
 			respLen = binary.BigEndian.Uint32(respLenByte[:])
 			msgBuff = make([]byte, respLen)
+			log.Debugf("waiting command msgBuff ...")
 			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
 			if err != nil {
 				log.Errorf("fail to read response data %v", err)

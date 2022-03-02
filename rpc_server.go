@@ -182,6 +182,7 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 			var reqLenBuff [4]byte
 			var reqBuff []byte
 
+			log.Debugf("waiting length ...")
 			_, err = io.ReadAtLeast(clientReader, reqLenBuff[:], 4)
 			if err != nil {
 				log.Errorf("fail to read command length %v", err)
@@ -190,6 +191,7 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 
 			reqLen = binary.BigEndian.Uint32(reqLenBuff[:])
 			reqBuff = make([]byte, reqLen)
+			log.Debugf("waiting command msgBuff ...")
 			_, err = io.ReadAtLeast(clientReader, reqBuff[:reqLen], int(reqLen))
 			if err != nil {
 				log.Errorf("fail to read command data %v", err)
