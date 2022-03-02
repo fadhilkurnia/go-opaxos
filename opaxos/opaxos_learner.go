@@ -78,6 +78,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
 		cmd.Value = gcmd.Value
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
+		reply.Slot = int(gcmd.CommandID)
 
 	} else {
 		log.Errorf("unknown client type, does not know how to handle the command")
