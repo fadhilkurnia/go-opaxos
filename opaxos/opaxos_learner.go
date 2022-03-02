@@ -5,7 +5,6 @@ import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/vmihailenco/msgpack/v5"
-	"time"
 )
 
 func (op *OPaxos) HandleCommitRequest(m P3) {
@@ -42,7 +41,7 @@ func (op *OPaxos) exec() {
 					log.Errorf("failed to send CommandReply %s", err)
 				}
 				e.command.RPCMessage = nil
-				log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
+				//log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
 			}
 		}
 
@@ -77,7 +76,6 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
 		}
 		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
-		log.Debugf("sent time %v", gcmd.SentAt)
 		cmd.Value = gcmd.Value
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
 
@@ -97,6 +95,6 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		reply.Data = value
 	}
 
-	log.Debugf("cmd=%v, value=%x", cmd, value)
+	//log.Debugf("cmd=%v, value=%x", cmd, value)
 	return reply
 }

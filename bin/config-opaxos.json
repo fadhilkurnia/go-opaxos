@@ -41,7 +41,7 @@
     "buffer_size": 1024,
     "multiversion": false,
     "benchmark": {
-        "T": 30,
+        "T": 10,
         "N": 0,
         "K": 9,
         "W": 1.0,

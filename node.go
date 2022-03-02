@@ -5,6 +5,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"reflect"
+	"runtime"
 	"sync"
 
 	"github.com/ailidani/paxi/log"
@@ -80,6 +81,7 @@ func (n *node) Run() {
 
 	if *isPprof {
 		go func() {
+			runtime.SetMutexProfileFraction(5)
 			log.Fatal(http.ListenAndServe("localhost:6060", nil))
 		}()
 	}
@@ -122,8 +124,7 @@ func (n *node) recv() {
 
 // handle receives messages from message channel and calls handle function using refection
 func (n *node) handle() {
-	for {
-		msg := <-n.MessageChan
+	for msg := range n.MessageChan {
 		v := reflect.ValueOf(msg)
 		name := v.Type().String()
 		f, exists := n.handles[name]

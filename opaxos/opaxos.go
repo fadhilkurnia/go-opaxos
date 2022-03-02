@@ -155,7 +155,12 @@ func (op *OPaxos) HandleCommandRequest(r *paxi.ClientBytesCommand) {
 			op.Prepare()
 		}
 	} else {
-		op.rawCommands <- r
-		op.Propose(<-op.pendingCommands)
+		// op.rawCommands <- r
+		// op.Propose(<-op.pendingCommands)
+		ss, ssTime, err := op.defaultSSWorker.secretShareCommand(r.Data)
+		if err != nil {
+			log.Errorf("failed to do secret sharing: %v", err)
+		}
+		op.Propose(&SecretSharedCommand{r, ssTime, ss})
 	}
 }
