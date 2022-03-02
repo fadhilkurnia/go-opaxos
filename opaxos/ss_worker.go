@@ -26,8 +26,7 @@ func newWorker(algorithm string, numShares, numThreshold int) secretSharingWorke
 }
 
 func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.ClientBytesCommand, outputChannel chan *SecretSharedCommand) {
-	for {
-		req := <-inputChannel
+	for req := range inputChannel {
 		ss, ssTime, err := w.secretShareCommand(req.Data)
 		if err != nil {
 			log.Errorf("failed to do secret sharing: %v", err)

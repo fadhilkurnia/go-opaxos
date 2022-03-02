@@ -51,7 +51,7 @@ type P2a struct {
 }
 
 func (m P2a) String() string {
-	return fmt.Sprintf("P2a {b=%v s=%d cmd=%v}", m.Ballot, m.Slot, m.Command)
+	return fmt.Sprintf("P2a {b=%v s=%d cmd=%x}", m.Ballot, m.Slot, m.Command)
 }
 
 // P2b response of propose message, sent from acceptor to proposer

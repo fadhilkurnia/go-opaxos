@@ -207,6 +207,11 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 				Data:       reqBuff,
 				Reply:      clientWriter,
 			}
+
+			if len(n.MessageChan) == config.ChanBufferSize {
+				log.Errorf("node message channel is full")
+			}
+
 			log.Debugf("get command from client %x", reqBuff)
 			n.MessageChan <- &ClientBytesCommand{&cmd, &rpcMsg}
 		}

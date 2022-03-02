@@ -1,12 +1,16 @@
 package paxi
 
 import (
+	"flag"
 	"net/http"
+	_ "net/http/pprof"
 	"reflect"
 	"sync"
 
 	"github.com/ailidani/paxi/log"
 )
+
+var isPprof = flag.Bool("pprof", false, "activate pprof server")
 
 // Node is the primary access point for every replica
 // it includes networking, state machine and RESTful API server
@@ -30,7 +34,6 @@ type node struct {
 	MessageChan chan interface{}
 	handles     map[string]reflect.Value
 	server      *http.Server
-
 
 	sync.RWMutex
 	forwards map[string]*Request
@@ -74,6 +77,13 @@ func (n *node) Register(m interface{}, f interface{}) {
 // Run start and run the node
 func (n *node) Run() {
 	log.Infof("node %v start running", n.id)
+
+	if *isPprof {
+		go func() {
+			log.Fatal(http.ListenAndServe("localhost:6060", nil))
+		}()
+	}
+
 	if len(n.handles) > 0 {
 		go n.handle()
 		go n.recv()
