@@ -107,9 +107,11 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			op.proposeUncommittedEntries()
 
 			// propose new commands, until it is empty
-			for len(op.rawCommands) > 0 || len(op.pendingCommands) > 0 {
-				op.Propose(<-op.pendingCommands)
+			lenRequests := len(op.requests)
+			for i := 0; i < lenRequests; i++ {
+				op.Propose(op.requests[i])
 			}
+			op.requests = make([]*SecretSharedCommand, 0)
 		}
 	}
 }

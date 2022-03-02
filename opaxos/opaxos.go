@@ -43,6 +43,7 @@ type OPaxos struct {
 	defaultSSWorker secretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
 	rawCommands     chan *paxi.ClientBytesCommand // raw commands, ready to be secret-shared
 	pendingCommands chan *SecretSharedCommand     // pending commands that will be proposed
+	requests        []*SecretSharedCommand
 
 	//rawRequests chan *paxi.BytesRequest // raw requests, ready to be secret-shared
 	//ssRequests  chan *SSBytesRequest    // phase 1 pending requests
@@ -81,6 +82,7 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		quorum:          paxi.NewQuorum(),
 		rawCommands:     make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
 		pendingCommands: make(chan *SecretSharedCommand, cfg.ChanBufferSize),
+		requests:        make([]*SecretSharedCommand, 0),
 		numSSWorkers:    maxInt(10, runtime.GOMAXPROCS(-1)),
 		K:               cfg.Protocol.Threshold,
 		N:               n.GetConfig().N(),
@@ -148,7 +150,12 @@ func (op *OPaxos) HandleCommandRequest(r *paxi.ClientBytesCommand) {
 		return
 	}
 	if !op.IsLeader {
-		op.rawCommands <- r
+		//op.rawCommands <- r
+		ss, ssTime, err := op.defaultSSWorker.secretShareCommand(r.Data)
+		if err != nil {
+			log.Errorf("failed to do secret sharing: %v", err)
+		}
+		op.requests = append(op.requests, &SecretSharedCommand{r, ssTime, ss})
 
 		// start phase 1 if this replica has not started it previously
 		if op.ballot.ID() != op.ID() {
