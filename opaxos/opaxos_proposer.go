@@ -36,6 +36,8 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 		ssTime:    r.ssTime,
 	}
 
+	log.Debugf("get cmd for slot %d", op.slot)
+
 	//if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
 	//	log.Errorf("failed to persist accepted value %v", err)
 	//}
@@ -101,12 +103,11 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 
 			// propose any uncommitted entries,
 			// this happened when other leaders yield down before
-			// the entries executed by this node.
+			// the entries are committed by this node.
 			op.proposeUncommittedEntries()
 
 			// propose new commands, until it is empty
-			numPendingRequests := len(op.pendingCommands)
-			for i := 0; i < numPendingRequests; i++ {
+			for len(op.pendingCommands) > 0 {
 				op.Propose(<-op.pendingCommands)
 			}
 		}
@@ -198,6 +199,12 @@ func (op *OPaxos) proposeUncommittedEntries() {
 			op.MulticastUniqueMessage(proposeRequests)
 		}
 	}
+}
+
+// startProposer keep proposing secret-shared message from pendingCommands channel
+// until another proposer become a leader
+func (op *OPaxos) startProposingCommands() {
+
 }
 
 func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {

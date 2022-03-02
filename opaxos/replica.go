@@ -57,6 +57,6 @@ func (r *Replica) RunWithWorker() {
 }
 
 func (r *Replica) handleClientBytesCommand(m *paxi.ClientBytesCommand) {
-	log.Debugf("(%d) Replica %s receives command %x\n", r.ID(), m.Data)
+	log.Debugf("Replica %s receives command %x\n", r.ID(), m.Data)
 	r.OPaxos.HandleCommandRequest(m)
 }
