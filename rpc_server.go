@@ -71,7 +71,7 @@ func (n *node) rpc() {
 }
 
 func (n *node) rpcWithUDS() {
-	socketAddress := fmt.Sprintf("/tmp/%s.lock", GetConfig().GetRPCPort(n.id))
+	socketAddress := fmt.Sprintf("/tmp/rpc_%s.sock", GetConfig().GetRPCPort(n.id))
 
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

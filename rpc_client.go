@@ -599,7 +599,7 @@ func NewUDSDBClient(serverID ID) (NonBlockingDBClient, error) {
 	var err error
 	c := new(UDSDBClient)
 
-	socketAddress := fmt.Sprintf("/tmp/%s.lock", GetConfig().GetRPCPort(serverID))
+	socketAddress := fmt.Sprintf("/tmp/rpc_%s.sock", GetConfig().GetRPCPort(serverID))
 
 	c.connection, err = net.Dial("unix", socketAddress)
 	if err != nil {

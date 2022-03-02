@@ -543,7 +543,9 @@ func (b *Benchmark) RunPipelineClient() {
 				}
 			}
 
+			log.Debugf("total number of requests sent: %d", reqCounter)
 			clientFinishFlag <- reqCounter // inform the number of request sent to the response consumer
+			log.Debugf("waiting for all responses...")
 			requestWaiter.Wait()           // wait until all the requests are responded
 		}(dbClient, keyGen, limiter)
 
