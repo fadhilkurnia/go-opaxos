@@ -491,7 +491,7 @@ func (b *Benchmark) RunPipelineClient() {
 			reqCounter := 0
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 100)
+				keyValBuff := make([]byte, 5)
 				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
 				rand.Read(keyValBuff[4:])
 				keyBuff := keyValBuff[:4]
