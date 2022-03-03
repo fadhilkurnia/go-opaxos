@@ -49,8 +49,8 @@ func NewTransport(addr string) Transport {
 
 	transport := &transport{
 		uri:   uri,
-		send:  make(chan interface{}, config.ChanBufferSize * config.N()),
-		recv:  make(chan interface{}, config.ChanBufferSize * config.N()),
+		send:  make(chan interface{}, config.ChanBufferSize),
+		recv:  make(chan interface{}, config.ChanBufferSize),
 		close: make(chan struct{}),
 	}
 

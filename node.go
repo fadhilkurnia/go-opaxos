@@ -134,9 +134,17 @@ func (n *node) handle() {
 		var msg interface{}
 
 		select {
-		case msg = <- n.MessageChan:
+		case msg = <- n.ProtocolMsgChan:
 			break
 		case msg = <- n.ProtocolMsgChan:
+			break
+		case msg = <- n.ProtocolMsgChan:
+			break
+		case msg = <- n.ProtocolMsgChan:
+			break
+		case msg = <- n.ProtocolMsgChan:
+			break
+		case msg = <- n.MessageChan:
 			break
 		}
 
