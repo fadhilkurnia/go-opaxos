@@ -429,7 +429,7 @@ func (b *Benchmark) RunPipelineClient() {
 	}()
 
 	clientWaiter := sync.WaitGroup{}
-
+	clientID := 0
 	for i := 0; i < b.Bconfig.Concurrency; i++ {
 		var limiter *lib.Limiter
 		if b.Throttle > 0 {
@@ -444,8 +444,9 @@ func (b *Benchmark) RunPipelineClient() {
 		keyGen := NewKeyGenerator(b)
 
 		// run each client in a separate goroutine
+		clientID++
 		clientWaiter.Add(1)
-		go func(dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
+		go func(clientID int, dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
 			defer clientWaiter.Done()
 
 			isClientFinished := false
@@ -475,7 +476,7 @@ func (b *Benchmark) RunPipelineClient() {
 					latencies <- temp
 					respCounter++
 
-					log.Debugf("latency: (%d) %d from %d - %v | %v | %v ", b.Size, respCounter, totalMsgSent, temp, now.UnixNano(), sent.UnixNano())
+					log.Debugf("latency: %d from %d - %v | %v | %v ", respCounter, totalMsgSent, temp, now.UnixNano(), sent.UnixNano())
 
 					select {
 					case totalMsgSent = <-clientFinishFlag:
@@ -489,6 +490,7 @@ func (b *Benchmark) RunPipelineClient() {
 			}()
 
 			// send command to server until finished
+			clientStartTime := time.Now()
 			reqCounter := 0
 			for !isClientFinished {
 				key := kg.next()
@@ -546,12 +548,14 @@ func (b *Benchmark) RunPipelineClient() {
 				}
 			}
 
+			clientEndTime := time.Now()
+			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
+			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
 			log.Debugf("total number of requests sent: %d", reqCounter)
 			clientFinishFlag <- reqCounter // inform the number of request sent to the response consumer
 			log.Debugf("waiting for all responses...")
 			requestWaiter.Wait() // wait until all the requests are responded
-		}(dbClient, keyGen, limiter)
-
+		}(clientID, dbClient, keyGen, limiter)
 	}
 
 	clientWaiter.Wait()    // wait until all the clients finish accepting responses
