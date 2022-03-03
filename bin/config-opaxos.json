@@ -45,6 +45,7 @@
         "N": 0,
         "K": 9,
         "W": 1.0,
+        "Size": 10,
         "Throttle": 4000,
         "Concurrency": 1,
         "Distribution": "uniform",
