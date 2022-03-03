@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -187,20 +186,20 @@ func (op *OPaxos) run() {
 }
 
 func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
-	switch reflect.TypeOf(pmsg) {
-	case reflect.TypeOf(P1a{}):
+	switch pmsg.(type) {
+	case P1a:
 		op.HandlePrepareRequest(pmsg.(P1a))
 		break
-	case reflect.TypeOf(P1b{}):
+	case P1b:
 		op.HandlePrepareResponse(pmsg.(P1b))
 		break
-	case reflect.TypeOf(P2a{}):
+	case P2a:
 		op.HandleProposeRequest(pmsg.(P2a))
 		break
-	case reflect.TypeOf(P2b{}):
+	case P2b:
 		op.HandleProposeResponse(pmsg.(P2b))
 		break
-	case reflect.TypeOf(P3{}):
+	case P3:
 		op.HandleCommitRequest(pmsg.(P3))
 		break
 	default:
