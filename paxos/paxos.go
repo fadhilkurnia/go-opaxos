@@ -28,9 +28,8 @@ type Paxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	quorum   *paxi.Quorum                  // phase 1 quorum
-	requests chan *paxi.ClientBytesCommand // phase 1 pending requests
-	//storage  paxi.PersistentStorage
+	quorum   *paxi.Quorum               // phase 1 quorum
+	requests []*paxi.ClientBytesCommand // phase 1 pending requests
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -44,8 +43,6 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		log:      make(map[int]*entry, paxi.GetConfig().BufferSize),
 		slot:     -1,
 		quorum:   paxi.NewQuorum(),
-		requests: make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
-		//storage:         paxi.NewPersistentStorage(n.ID()),
 		Q1:              func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:              func(q *paxi.Quorum) bool { return q.Majority() },
 		ReplyWhenCommit: false,
@@ -85,9 +82,9 @@ func (p *Paxos) SetBallot(b paxi.Ballot) {
 
 // HandleRequest handles request and start phase 1 or phase 2
 func (p *Paxos) HandleRequest(r *paxi.ClientBytesCommand) {
-	// log.Debugf("Replica %s received %v\n", p.ID(), r)
 	if !p.active {
-		p.requests <- r
+		p.requests = append(p.requests, r)
+
 		// current phase 1 pending
 		if p.ballot.ID() != p.ID() {
 			p.P1a()
@@ -185,11 +182,11 @@ func (p *Paxos) update(scb map[int]CommandBallot) {
 		} else {
 			bc := paxi.BytesCommand(cb.Command)
 			p.log[s] = &entry{
-				ballot:  cb.Ballot,
-				command : &paxi.ClientBytesCommand{
+				ballot: cb.Ballot,
+				command: &paxi.ClientBytesCommand{
 					BytesCommand: &bc,
 				},
-				commit:  false,
+				commit: false,
 			}
 		}
 	}
@@ -237,8 +234,9 @@ func (p *Paxos) HandleP1b(m P1b) {
 			// propose new commands
 			numPendingRequests := len(p.requests)
 			for i := 0; i < numPendingRequests; i++ {
-				p.P2a(<-p.requests)
+				p.P2a(p.requests[i])
 			}
+			p.requests = nil
 		}
 	}
 }
@@ -277,12 +275,12 @@ func (p *Paxos) HandleP2a(m P2a) {
 		} else {
 			bc := paxi.BytesCommand(m.Command)
 			p.log[m.Slot] = &entry{
-				ballot:  m.Ballot,
+				ballot: m.Ballot,
 				command: &paxi.ClientBytesCommand{
 					BytesCommand: &bc,
 					RPCMessage:   nil,
 				},
-				commit:  false,
+				commit: false,
 			}
 		}
 	}
@@ -320,8 +318,8 @@ func (p *Paxos) HandleP2b(m P2b) {
 		if p.Q2(p.log[m.Slot].quorum) {
 			p.log[m.Slot].commit = true
 			p.Broadcast(P3{
-				Ballot:  m.Ballot,
-				Slot:    m.Slot,
+				Ballot: m.Ballot,
+				Slot:   m.Slot,
 				//Command: p.log[m.Slot].command.Data,
 			})
 
@@ -439,7 +437,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 	if *paxi.ClientType == "default" || *paxi.ClientType == "" || *paxi.ClientType == "callback" {
 		cmd = byteCmd.ToCommand()
 
-	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
+	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix" {
 		gcmd := &paxi.GenericCommand{}
 		err := msgpack.Unmarshal(*byteCmd, &gcmd)
 		if err != nil {
