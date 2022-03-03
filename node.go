@@ -32,9 +32,10 @@ type node struct {
 
 	Socket
 	Database
-	MessageChan chan interface{}
-	handles     map[string]reflect.Value
-	server      *http.Server
+	MessageChan     chan interface{}
+	ProtocolMsgChan chan interface{}
+	handles         map[string]reflect.Value
+	server          *http.Server
 
 	sync.RWMutex
 	forwards map[string]*Request
@@ -43,12 +44,13 @@ type node struct {
 // NewNode creates a new Node object from configuration
 func NewNode(id ID) Node {
 	return &node{
-		id:          id,
-		Socket:      NewSocket(id, config.Addrs),
-		Database:    NewDatabase(),
-		MessageChan: make(chan interface{}, config.ChanBufferSize),
-		handles:     make(map[string]reflect.Value),
-		forwards:    make(map[string]*Request),
+		id:              id,
+		Socket:          NewSocket(id, config.Addrs),
+		Database:        NewDatabase(),
+		MessageChan:     make(chan interface{}, config.ChanBufferSize),
+		ProtocolMsgChan: make(chan interface{}, config.ChanBufferSize),
+		handles:         make(map[string]reflect.Value),
+		forwards:        make(map[string]*Request),
 	}
 }
 
@@ -61,7 +63,7 @@ func (n *node) GetConfig() *Config {
 }
 
 func (n *node) Retry(r Request) {
-	log.Debugf("node %v retry reqeust %v", n.id, r)
+	log.Debugf("node %v retry request %v", n.id, r)
 	n.MessageChan <- r
 }
 
@@ -82,6 +84,7 @@ func (n *node) Run() {
 	if *isPprof {
 		go func() {
 			runtime.SetMutexProfileFraction(5)
+			runtime.SetBlockProfileRate(1)
 			log.Fatal(http.ListenAndServe("localhost:6060", nil))
 		}()
 	}
@@ -118,13 +121,25 @@ func (n *node) recv() {
 			r.Reply(m)
 			continue
 		}
-		n.MessageChan <- m
+
+		// other messages are handled as protocol message
+		n.ProtocolMsgChan <- m
 	}
 }
 
-// handle receives messages from message channel and calls handle function using refection
+// handle receives messages from message channel and protocol message channel
+// and calls handle function using refection
 func (n *node) handle() {
-	for msg := range n.MessageChan {
+	for {
+		var msg interface{}
+
+		select {
+		case msg = <- n.MessageChan:
+			break
+		case msg = <- n.ProtocolMsgChan:
+			break
+		}
+
 		v := reflect.ValueOf(msg)
 		name := v.Type().String()
 		f, exists := n.handles[name]

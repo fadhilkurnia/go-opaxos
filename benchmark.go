@@ -53,12 +53,12 @@ type Bconfig struct {
 	N                    int     // total number of requests
 	K                    int     // accessed key space [0,K)
 	W                    float64 // write ratio
-	Throttle             int     // requests per second throttle, unused if 0
+	Size                 int     // the size of value written in bytes, the key is always a 4 bytes integer
+	Throttle             int     // requests per second throttle, unused if 0. the rate of simulated request in request/second for each client (λ in poisson distribution)
 	Concurrency          int     // number of concurrent clients
 	Distribution         string  // key-access distribution: order, uniform, conflict, normal, zipfian, exponential.
 	LinearizabilityCheck bool    // run linearizability checker at the end of benchmark
 	Rounds               int     // (unimplemented) repeat in many rounds sequentially
-	RequestRate          float64 // the rate of simulated request in request/second for each client (λ in poisson distribution)
 
 	// conflict distribution
 	Conflicts int // percentage of conflicting keys [1,100]
@@ -85,6 +85,7 @@ func DefaultBConfig() Bconfig {
 		N:                    0,
 		K:                    1000,
 		W:                    0.5,
+		Size:                 50,
 		Throttle:             0,
 		Concurrency:          1,
 		Distribution:         "uniform",
@@ -302,7 +303,7 @@ func (b *Benchmark) RunAsyncClient() {
 			requestWaiter := sync.WaitGroup{}
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 100)
+				keyValBuff := make([]byte, 4+b.Size)
 				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
 				rand.Read(keyValBuff[4:])
 				keyBuff := keyValBuff[:4]
@@ -491,7 +492,7 @@ func (b *Benchmark) RunPipelineClient() {
 			reqCounter := 0
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 5)
+				keyValBuff := make([]byte, 4+b.Size)
 				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
 				rand.Read(keyValBuff[4:])
 				keyBuff := keyValBuff[:4]
@@ -548,7 +549,7 @@ func (b *Benchmark) RunPipelineClient() {
 			log.Debugf("total number of requests sent: %d", reqCounter)
 			clientFinishFlag <- reqCounter // inform the number of request sent to the response consumer
 			log.Debugf("waiting for all responses...")
-			requestWaiter.Wait()           // wait until all the requests are responded
+			requestWaiter.Wait() // wait until all the requests are responded
 		}(dbClient, keyGen, limiter)
 
 	}
@@ -578,7 +579,7 @@ func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
 		var err error
 		op := new(operation)
 		if rand.Float64() < b.W {
-			val := make([]byte, 100)
+			val := make([]byte, b.Size)
 			rand.Read(val)
 			s = time.Now()
 			ret, errx := b.db.Write3(key, val)

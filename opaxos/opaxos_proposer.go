@@ -106,9 +106,12 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			// the entries are committed by this node.
 			op.proposeUncommittedEntries()
 
-			// propose new commands, until it is empty
-			for len(op.rawCommands) + len(op.pendingCommands) > 0 {
-				op.Propose(<-op.pendingCommands)
+			// propose pending commands
+			numPendingCmds := len(op.pendingCommands)
+			for i := 0; i < numPendingCmds; i++ {
+				pcmd := <-op.pendingCommands
+				log.Debugf("propose right after becoming a leader")
+				op.Propose(pcmd)
 			}
 
 			op.onOffPendingCommands = op.pendingCommands
