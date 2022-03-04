@@ -462,29 +462,25 @@ func (b *Benchmark) RunPipelineClient() {
 			// gather all responses from server
 			requestWaiter := sync.WaitGroup{}
 			requestWaiter.Add(1)
-			clientFinishFlag := make(chan int, 1)
+			clientFinishFlag := make(chan int)
 			go func() {
 				defer requestWaiter.Done()
 				receiverCh := dbClient.GetReceiverChannel()
 				totalMsgSent := -1
 				respCounter := 0
 
-				for resp := range receiverCh {
-					now := time.Now()
-					sent := time.Unix(0, resp.SentAt)
-					temp := now.Sub(sent)
-					latencies <- temp
-					respCounter++
-
-					log.Debugf("latency: %d from %d - %v | %v | %v ", respCounter, totalMsgSent, temp, now.UnixNano(), sent.UnixNano())
-
+				for respCounter != totalMsgSent {
 					select {
 					case totalMsgSent = <-clientFinishFlag:
-					default:
-					}
-
-					if totalMsgSent == respCounter {
+						log.Infof("finish sending, received %d from %d", respCounter, totalMsgSent)
+						clientFinishFlag = nil
 						break
+
+					case resp := <-receiverCh:
+						latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+						respCounter++
+						break
+
 					}
 				}
 			}()
@@ -551,9 +547,7 @@ func (b *Benchmark) RunPipelineClient() {
 			clientEndTime := time.Now()
 			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
 			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
-			log.Debugf("total number of requests sent: %d", reqCounter)
 			clientFinishFlag <- reqCounter // inform the number of request sent to the response consumer
-			log.Debugf("waiting for all responses...")
 			requestWaiter.Wait() // wait until all the requests are responded
 		}(clientID, dbClient, keyGen, limiter)
 	}
