@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/encoder"
 )
 
 func init() {
@@ -12,6 +13,12 @@ func init() {
 	gob.Register(P2a{})
 	gob.Register(P2b{})
 	gob.Register(P3{})
+
+	encoder.Register(P1a{})
+	encoder.Register(P1b{})
+	encoder.Register(P2a{})
+	encoder.Register(P2b{})
+	encoder.Register(P3{})
 }
 
 // P1a prepare message

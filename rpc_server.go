@@ -162,13 +162,15 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 	clientWriter := bufio.NewWriter(conn)
 
 	var err error
+	var firstByte byte
+	var reqLen uint32
+	var reqLenBuff [4]byte
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket
 		// thus, it is fine to have this busy-loop
 		// read the command type, then the command itself.
 
-		var firstByte byte
 		firstByte, err = clientReader.ReadByte()
 		if err != nil {
 			if err == io.EOF {
@@ -180,8 +182,6 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 		}
 
 		if firstByte == COMMAND {
-			var reqLen uint32
-			var reqLenBuff [4]byte
 			var reqBuff []byte
 
 			log.Debugf("waiting length ...")

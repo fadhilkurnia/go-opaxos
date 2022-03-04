@@ -485,12 +485,12 @@ func (c *DefaultDBClient) _putResponseToChannel() {
 	defer c.connection.Close()
 
 	var err error = nil
+	var firstByte byte
+	var respLen uint32
+	var respLenByte [4]byte
 
 	//	get response from wire, parse, put to channel
 	for err == nil {
-		var firstByte byte
-		var respLen uint32
-		var respLenByte [4]byte
 		var msgBuff []byte
 		var resp *CommandReply
 
@@ -618,12 +618,12 @@ func (c *UDSDBClient) _putResponseToChannel() {
 	defer c.connection.Close()
 
 	var err error = nil
+	var firstByte byte
+	var respLen uint32
+	var respLenByte [4]byte
 
 	//	get response from wire, parse, put to channel
 	for err == nil {
-		var firstByte byte
-		var respLen uint32
-		var respLenByte [4]byte
 		var msgBuff []byte
 		var resp *CommandReply
 

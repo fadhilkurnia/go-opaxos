@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"github.com/ailidani/paxi/encoder"
 	"github.com/ailidani/paxi/log"
 	"time"
 
@@ -20,6 +21,17 @@ func init() {
 	gob.Register(TransactionReply{})
 	gob.Register(Register{})
 	gob.Register(Config{})
+
+
+	encoder.Register(Request{})
+	encoder.Register(BytesRequest{})
+	encoder.Register(Reply{})
+	encoder.Register(Read{})
+	encoder.Register(ReadReply{})
+	encoder.Register(Transaction{})
+	encoder.Register(TransactionReply{})
+	encoder.Register(Register{})
+	encoder.Register(Config{})
 }
 
 /***************************

@@ -39,7 +39,7 @@ func replica(id paxi.ID) {
 	switch *algorithm {
 
 	case "paxos":
-		paxos.NewReplica(id).Run()
+		paxos.NewReplica(id).RunWithChannel()
 
 	case "epaxos":
 		epaxos.NewReplica(id).Run()

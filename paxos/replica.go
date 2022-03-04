@@ -28,17 +28,30 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Node = paxi.NewNode(id)
 	r.Paxos = NewPaxos(r)
 	//r.Register(paxi.Request{}, r.handleRequest)
-	r.Register(P1a{}, r.HandleP1a)
-	r.Register(P1b{}, r.HandleP1b)
-	r.Register(P2a{}, r.HandleP2a)
-	r.Register(P2b{}, r.HandleP2b)
-	r.Register(P3{}, r.HandleP3)
+	r.Register(P1a{}, r.EnqueueProtocolMessages)
+	r.Register(P1b{}, r.EnqueueProtocolMessages)
+	r.Register(P2a{}, r.EnqueueProtocolMessages)
+	r.Register(P2b{}, r.EnqueueProtocolMessages)
+	r.Register(P3{}, r.EnqueueProtocolMessages)
 
 	if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix" {
-		r.Register(&paxi.ClientBytesCommand{}, r.handleBytesCommand)
+		r.Register(&paxi.ClientBytesCommand{}, r.EnqueueClientRequests)
 	}
 
 	return r
+}
+
+func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
+	r.Paxos.protocolMessages <- pmsg
+}
+
+func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientBytesCommand) {
+	r.Paxos.pendingCommands <- ccmd
+}
+
+func (r *Replica) RunWithChannel() {
+	go r.Paxos.run()
+	r.Run()
 }
 
 //func (r *Replica) handleRequest(m paxi.Request) {

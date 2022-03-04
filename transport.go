@@ -1,17 +1,18 @@
 package paxi
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/gob"
 	"errors"
 	"flag"
+	"github.com/ailidani/paxi/encoder"
+	"github.com/ailidani/paxi/log"
 	"io"
 	"net"
 	"net/url"
 	"strings"
 	"sync"
-
-	"github.com/ailidani/paxi/log"
 )
 
 var scheme = flag.String("transport", "tcp", "transport scheme (tcp, udp, chan), default tcp")
@@ -106,10 +107,11 @@ func (t *transport) Dial() error {
 	go func(conn net.Conn) {
 		// w := bufio.NewWriter(conn)
 		// codec := NewCodec(config.Codec, conn)
-		encoder := gob.NewEncoder(conn)
+		// encoder := gob.NewEncoder(conn)
+		connWriter := bufio.NewWriter(conn)
 		defer conn.Close()
 		for m := range t.send {
-			err := encoder.Encode(&m)
+			err := encoder.Encode(connWriter, m)
 			if err != nil {
 				log.Error(err)
 			}
@@ -143,8 +145,9 @@ func (t *tcp) Listen() {
 			}
 
 			go func(conn net.Conn) {
+				connReader := bufio.NewReader(conn)
 				// codec := NewCodec(config.Codec, conn)
-				decoder := gob.NewDecoder(conn)
+				//decoder := gob.NewDecoder(conn)
 				defer conn.Close()
 				//r := bufio.NewReader(conn)
 				for {
@@ -153,7 +156,7 @@ func (t *tcp) Listen() {
 						return
 					default:
 						var m interface{}
-						err := decoder.Decode(&m)
+						err := encoder.Decode(connReader, &m)
 						if err != nil {
 							if err == io.EOF {
 								log.Infof("connection is closed from the other end %v", err)

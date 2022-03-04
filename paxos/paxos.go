@@ -28,8 +28,10 @@ type Paxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	quorum   *paxi.Quorum               // phase 1 quorum
-	requests []*paxi.ClientBytesCommand // phase 1 pending requests
+	quorum           *paxi.Quorum                  // phase 1 quorum
+	requests         []*paxi.ClientBytesCommand    // phase 1 pending requests
+	protocolMessages chan interface{}              // prepare, propose, commit, etc
+	pendingCommands  chan *paxi.ClientBytesCommand // pending commands from clients
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -39,13 +41,15 @@ type Paxos struct {
 // NewPaxos creates new paxos instance
 func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 	p := &Paxos{
-		Node:     n,
-		log:      make(map[int]*entry, paxi.GetConfig().BufferSize),
-		slot:     -1,
-		quorum:   paxi.NewQuorum(),
-		Q1:              func(q *paxi.Quorum) bool { return q.Majority() },
-		Q2:              func(q *paxi.Quorum) bool { return q.Majority() },
-		ReplyWhenCommit: false,
+		Node:             n,
+		log:              make(map[int]*entry, paxi.GetConfig().BufferSize),
+		slot:             -1,
+		quorum:           paxi.NewQuorum(),
+		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
+		pendingCommands:  make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		Q1:               func(q *paxi.Quorum) bool { return q.Majority() },
+		Q2:               func(q *paxi.Quorum) bool { return q.Majority() },
+		ReplyWhenCommit:  false,
 	}
 
 	for _, opt := range options {
@@ -55,7 +59,57 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 	return p
 }
 
-// IsLeader indecates if this node is current leader
+func (p *Paxos) run() {
+	var err error
+	for err == nil {
+		select {
+		case cmd := <-p.pendingCommands:
+			p.HandleRequest(cmd)
+			break
+
+		case pcmd := <-p.protocolMessages:
+			p.handleProtocolMessages(pcmd)
+			break
+		case pcmd := <-p.protocolMessages:
+			p.handleProtocolMessages(pcmd)
+			break
+		case pcmd := <-p.protocolMessages:
+			p.handleProtocolMessages(pcmd)
+			break
+		case pcmd := <-p.protocolMessages:
+			p.handleProtocolMessages(pcmd)
+			break
+		case pcmd := <-p.protocolMessages:
+			p.handleProtocolMessages(pcmd)
+			break
+		}
+	}
+}
+
+func (p *Paxos) handleProtocolMessages(pmsg interface{}) {
+	log.Debugf("receiving %v", pmsg)
+	switch pmsg.(type) {
+	case P1a:
+		p.HandleP1a(pmsg.(P1a))
+		break
+	case P1b:
+		p.HandleP1b(pmsg.(P1b))
+		break
+	case P2a:
+		p.HandleP2a(pmsg.(P2a))
+		break
+	case P2b:
+		p.HandleP2b(pmsg.(P2b))
+		break
+	case P3:
+		p.HandleP3(pmsg.(P3))
+		break
+	default:
+		log.Errorf("unknown protocol messages")
+	}
+}
+
+// IsLeader indicates if this node is current leader
 func (p *Paxos) IsLeader() bool {
 	return p.active || p.ballot.ID() == p.ID()
 }
