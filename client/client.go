@@ -92,6 +92,9 @@ func main() {
 		bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
 	}
 
+	// temporary hack to gather latency
+	bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
+
 	if *load {
 		bench.Load()
 	} else {

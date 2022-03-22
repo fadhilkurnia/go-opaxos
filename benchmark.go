@@ -112,8 +112,9 @@ type Benchmark struct {
 
 	db DB // (will be deprecated soon)
 
-	latency   []time.Duration // latency per operation from all clients
-	startTime time.Time
+	latency    []time.Duration // latency per operation from all clients
+	encodeTime []time.Duration // encoding time
+	startTime  time.Time
 
 	wait sync.WaitGroup // waiting for all generated keys to complete
 }
@@ -188,6 +189,9 @@ func (b *Benchmark) Run() {
 		b.RunPipelineClient()
 		return
 	}
+
+	b.RunSyncClient()
+	return
 
 	var stop chan bool
 	if b.Move {
@@ -548,7 +552,7 @@ func (b *Benchmark) RunPipelineClient() {
 			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
 			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
 			clientFinishFlag <- reqCounter // inform the number of request sent to the response consumer
-			requestWaiter.Wait() // wait until all the requests are responded
+			requestWaiter.Wait()           // wait until all the requests are responded
 		}(clientID, dbClient, keyGen, limiter)
 	}
 
@@ -567,6 +571,150 @@ func (b *Benchmark) RunPipelineClient() {
 	log.Info(stat)
 
 	_ = stat.WriteFile("latency")
+}
+
+// RunSyncClient is a temporary runner that use pipelined client under the hood
+func (b *Benchmark) RunSyncClient() {
+	latencies := make(chan time.Duration, 100_000)
+	encodeTimes := make(chan time.Duration, 100_000)
+	b.startTime = time.Now()
+
+	// gather the latencies from all clients
+	latWriterWaiter := sync.WaitGroup{}
+	latWriterWaiter.Add(1)
+	go func() {
+		defer latWriterWaiter.Done()
+		for t := range latencies {
+			b.latency = append(b.latency, t)
+		}
+	}()
+	latWriterWaiter.Add(1)
+	go func() {
+		defer latWriterWaiter.Done()
+		for t := range encodeTimes {
+			b.encodeTime = append(b.encodeTime, t)
+		}
+	}()
+
+	clientWaiter := sync.WaitGroup{}
+	clientID := 0
+	for i := 0; i < b.Bconfig.Concurrency; i++ {
+		var limiter *lib.Limiter
+		if b.Throttle > 0 {
+			limiter = lib.NewLimiter(b.Throttle)
+		}
+
+		dbClient, err := b.NBClientFactory.Create()
+		if err != nil {
+			log.Fatalf("failed to initialize db client: %s", err.Error())
+		}
+
+		keyGen := NewKeyGenerator(b)
+
+		// run each client in a separate goroutine
+		clientID++
+		clientWaiter.Add(1)
+		go func(clientID int, dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
+			defer clientWaiter.Done()
+
+			isClientFinished := false
+			timesUpFlag := make(chan bool)
+			receiverCh := dbClient.GetReceiverChannel()
+
+			if b.T != 0 {
+				go func() {
+					time.Sleep(time.Duration(b.T) * time.Second)
+					timesUpFlag <- true
+				}()
+			}
+
+			// send command to server until finished
+			clientStartTime := time.Now()
+			reqCounter := 0
+			for !isClientFinished {
+				key := kg.next()
+				keyValBuff := make([]byte, 4+b.Size)
+				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
+				rand.Read(keyValBuff[4:])
+				keyBuff := keyValBuff[:4]
+				value := keyValBuff[4:]
+
+				// issuing write request
+				if rand.Float64() < b.W {
+					// SendCommand is a non-blocking method, it returns immediately
+					// without waiting for the response
+					now := time.Now()
+					log.Debugf("sending write command at %v", now.UnixNano())
+					err = dbClient.SendCommand(GenericCommand{
+						CommandID: uint32(reqCounter),
+						Operation: OP_WRITE,
+						Key:       keyBuff,
+						Value:     value,
+						SentAt:    now.UnixNano(),
+					})
+				} else { // issuing read request
+					now := time.Now()
+					log.Debugf("sending read command at %v", now.UnixNano())
+					err = dbClient.SendCommand(GenericCommand{
+						CommandID: uint32(reqCounter),
+						Operation: OP_READ,
+						Key:       keyBuff,
+						SentAt:    now.UnixNano(),
+					})
+				}
+				reqCounter++
+
+				// wait for the response
+				resp := <-receiverCh
+				latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+				encodeTimes <- resp.EncodeTime
+
+				// stop if this client already send N requests
+				if b.N > 0 && reqCounter == b.N {
+					isClientFinished = true
+					continue
+				}
+
+				// stop if the timer is up, non-blocking checking
+				if b.T != 0 {
+					select {
+					case _ = <-timesUpFlag:
+						isClientFinished = true
+						continue
+					default:
+					}
+				}
+
+				// wait before issuing next request, if limiter is active
+				if limiter != nil {
+					limiter.Wait()
+				}
+			}
+
+			clientEndTime := time.Now()
+			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
+			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
+		}(clientID, dbClient, keyGen, limiter)
+	}
+
+	clientWaiter.Wait()    // wait until all the clients finish accepting responses
+	close(latencies)       // closing the latencies channel
+	close(encodeTimes)     // closing encodeTimes channel
+	latWriterWaiter.Wait() // wait until all latencies are recorded
+
+	t := time.Now().Sub(b.startTime)
+
+	stat := Statistic(b.latency)
+	log.Infof("Concurrency = %d", b.Concurrency)
+	log.Infof("Write Ratio = %f", b.W)
+	log.Infof("Number of Keys = %d", b.K)
+	log.Infof("Benchmark Time = %v\n", t)
+	log.Infof("Throughput = %f\n", float64(len(b.latency))/t.Seconds())
+	log.Info(stat)
+
+	_ = stat.WriteFile("latency")
+	stat2 := Statistic(b.encodeTime)
+	_ = stat2.WriteFile("encode_time")
 }
 
 func (b *Benchmark) worker(keys <-chan int, result chan<- time.Duration) {
