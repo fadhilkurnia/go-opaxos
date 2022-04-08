@@ -14,7 +14,6 @@ var id = flag.String("id", "", "node id this client connects to")
 var algorithm = flag.String("algorithm", "", "Client API type [paxos, chain]")
 var load = flag.Bool("load", false, "Load K keys into DB")
 var master = flag.String("master", "", "Master address.")
-var newclient = flag.Bool("newclient", false, "Using new pipelined client")
 
 // db implements Paxi.DB interface for benchmarking
 type db struct {
@@ -82,7 +81,13 @@ func main() {
 	var bench *paxi.Benchmark
 	bench = paxi.NewBenchmark(d)
 
-	if *paxi.ClientType == "callback" {
+	// TODO: handle client_type: unix (default), tcp, http
+	// TODO: handle client_action: block (default), pipeline, callback
+
+	// default client: blocking unix client.
+	bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
+
+	if *paxi.ClientType == "callback" || *paxi.ClientType == "tcp" {
 		bench.ClientFactory = paxi.RPCClientFactory{}.Init().WithServerID(paxi.ID(*id)).Async()
 	}
 	if *paxi.ClientType == "pipeline" {
@@ -91,9 +96,6 @@ func main() {
 	if *paxi.ClientType == "unix" {
 		bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
 	}
-
-	// temporary hack to gather latency
-	bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
 
 	if *load {
 		bench.Load()

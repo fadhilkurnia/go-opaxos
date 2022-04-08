@@ -93,7 +93,7 @@ func (n *node) Run() {
 		go n.handle()
 		go n.recv()
 	}
-	if *ClientType == "default" || *ClientType == "" {
+	if *ClientType == "http" {
 		n.http()
 	} else {
 		n.rpc()

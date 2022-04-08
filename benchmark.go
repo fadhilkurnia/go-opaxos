@@ -180,18 +180,26 @@ func (b *Benchmark) Load() {
 
 // Run starts the main logic of benchmarking
 func (b *Benchmark) Run() {
-
-	if *ClientType == "callback" {
-		b.RunAsyncClient()
-		return
-	}
-	if *ClientType == "pipeline" || *ClientType == "unix" {
+	if *ClientAction == "pipeline" {
 		b.RunPipelineClient()
+		*ClientIsStateful = false
+		return
+	}
+	if *ClientAction == "callback" {
+		*ClientIsStateful = true
+		b.RunCallbackClient()
 		return
 	}
 
-	b.RunSyncClient()
+	*ClientIsStateful = false
+	b.RunBlockingClient()
 	return
+}
+
+// RunReadWriteClient uses the read and write interface implemented by the database.
+// It is the original implementation in Paxi. The read and write interface is mainly used
+// for cmd (Paxi's cmd client).
+func (b *Benchmark) RunReadWriteClient() {
 
 	var stop chan bool
 	if b.Move {
@@ -259,7 +267,7 @@ func (b *Benchmark) Run() {
 	}
 }
 
-func (b *Benchmark) RunAsyncClient() {
+func (b *Benchmark) RunCallbackClient() {
 	latencies := make(chan time.Duration, 100_000)
 	b.startTime = time.Now()
 
@@ -573,8 +581,9 @@ func (b *Benchmark) RunPipelineClient() {
 	_ = stat.WriteFile("latency")
 }
 
-// RunSyncClient is a temporary runner that use pipelined client under the hood
-func (b *Benchmark) RunSyncClient() {
+// RunBlockingClient initiates clients that do one outstanding request at a time.
+// It uses pipelined client interface under the hood.
+func (b *Benchmark) RunBlockingClient() {
 	latencies := make(chan time.Duration, 100_000)
 	encodeTimes := make(chan time.Duration, 100_000)
 	b.startTime = time.Now()

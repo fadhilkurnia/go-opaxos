@@ -14,10 +14,9 @@ var GatherSecretShareTime = flag.Bool("sstimeon", false, "Whether the server nee
 
 // Config contains every system configuration
 type Config struct {
-	Addrs     map[ID]string `json:"address"`      // address for node communication
-	HTTPAddrs map[ID]string `json:"http_address"` // address for client server communication
-	RPCAddrs  map[ID]string `json:"rpc_address"`  // address for client server communication
-	Roles     map[ID]string `json:"roles"`        // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
+	Addrs       map[ID]string `json:"address"`        // address for node communication
+	PublicAddrs map[ID]string `json:"public_address"` // address for client server communication
+	Roles       map[ID]string `json:"roles"`          // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
 
 	StoragePath string `json:"storage_path"`
 
@@ -92,7 +91,7 @@ func (c Config) Z() int {
 }
 
 func (c Config) GetRPCHost(id ID) string {
-	fullAddress := c.RPCAddrs[id]
+	fullAddress := c.PublicAddrs[id]
 	address, err := url.Parse(fullAddress)
 	if err != nil {
 		log.Fatalf("failed to parse server address from config file: %s", err)
@@ -101,7 +100,7 @@ func (c Config) GetRPCHost(id ID) string {
 }
 
 func (c Config) GetRPCPort(id ID) string {
-	fullAddress := c.RPCAddrs[id]
+	fullAddress := c.PublicAddrs[id]
 	address, err := url.Parse(fullAddress)
 	if err != nil {
 		log.Fatalf("failed to parse server address from config file: %s", err)

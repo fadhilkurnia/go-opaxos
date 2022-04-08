@@ -68,10 +68,10 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		Data:       nil,
 	}
 
-	if *paxi.ClientType == "default" || *paxi.ClientType == "" || *paxi.ClientType == "callback" {
+	if *paxi.ClientIsStateful {
 		cmd = byteCmd.ToCommand()
 
-	} else if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix"{
+	} else if *paxi.ClientIsStateful == false {
 		gcmd := &paxi.GenericCommand{}
 		err := msgpack.Unmarshal(*byteCmd, &gcmd)
 		if err != nil {
@@ -82,7 +82,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
 
 	} else {
-		log.Errorf("unknown client type, does not know how to handle the command")
+		log.Errorf("unknown client stateful property, does not know how to handle the command")
 		reply.OK = false
 	}
 

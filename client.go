@@ -55,7 +55,7 @@ func NewHTTPClient(id ID) *HTTPClient {
 		ID:    id,
 		N:     len(config.Addrs),
 		Addrs: config.Addrs,
-		HTTP:  config.HTTPAddrs,
+		HTTP:  config.PublicAddrs,
 		Client: &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:        1000,

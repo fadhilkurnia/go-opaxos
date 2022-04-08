@@ -15,7 +15,9 @@ import (
 	"syscall"
 )
 
-var ClientType = flag.String("client_type", "default", "client type that sending command to the server")
+var ClientType = flag.String("client_type", "unix", "client type that sending command to the server, options: unix (default), tcp, http")
+var ClientAction = flag.String("client_action", "block", "how the client communicate with the server, options: block (default), pipeline, callback")
+var ClientIsStateful = flag.Bool("client_stateful", false, "whether the client store the request metadata or not, by default all the metadata (e.g timestamp) stored in the request & response")
 
 // message format expected by rpc server:
 // message type (1 byte), message_id (4 bytes), message_length (4 bytes), data (message_length bytes)
@@ -36,11 +38,11 @@ func (n *node) rpc() {
 		return
 	}
 
-	httpURL, err := url.Parse(config.RPCAddrs[n.id])
+	rpcAddress, err := url.Parse(config.PublicAddrs[n.id])
 	if err != nil {
 		log.Fatal("http url parse error: ", err)
 	}
-	port := ":" + httpURL.Port()
+	port := ":" + rpcAddress.Port()
 
 	rpc.HandleHTTP()
 	listener, err := net.Listen("tcp", port)

@@ -42,7 +42,7 @@ func main() {
 			log.Printf("Node %v address %s\n", id, addrs[id])
 		}
 		config.Addrs = addrs
-		config.HTTPAddrs = http
+		config.PublicAddrs = http
 		for i := 0; i < *n; i++ {
 			out <- config
 		}

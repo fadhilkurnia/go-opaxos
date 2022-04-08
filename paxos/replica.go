@@ -34,7 +34,7 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P2b{}, r.EnqueueProtocolMessages)
 	r.Register(P3{}, r.EnqueueProtocolMessages)
 
-	if *paxi.ClientType == "pipeline" || *paxi.ClientType == "unix" {
+	if *paxi.ClientIsStateful == false {
 		r.Register(&paxi.ClientBytesCommand{}, r.EnqueueClientRequests)
 	}
 

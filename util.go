@@ -36,6 +36,7 @@ func Retry(f func() error, attempts int, sleep time.Duration) error {
 		if err == nil {
 			return nil
 		}
+		log.Debug(err)
 
 		if i >= attempts-1 {
 			break
