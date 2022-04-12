@@ -41,7 +41,6 @@ type P1b struct {
 
 // CommandShare combines each secret-shared command with its ballot number
 type CommandShare struct {
-	Sn  int         // Sn : slot-number
 	Ballot paxi.Ballot // Obn: original ballot-number
 	Command []byte      // Cmd: the secret-shared command being proposed
 }
