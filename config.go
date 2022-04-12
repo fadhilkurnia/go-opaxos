@@ -11,6 +11,7 @@ import (
 
 var configFile = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
 var GatherSecretShareTime = flag.Bool("sstimeon", false, "Whether the server need to return the secret-sharing encoding time or not")
+var DisableBatching = flag.Bool("batch_off", false, "Disable batching: sending one proposal at a time")
 
 // Config contains every system configuration
 type Config struct {

@@ -157,7 +157,7 @@ func (op *OPaxos) run() {
 			break
 
 		// onOffPendingCommands is nil before this replica successfully running phase-1
-		// see OPaxos.HandleProposeResponse for more detail
+		// see OPaxos.HandlePrepareResponse for more detail
 		case pCmd := <-op.onOffPendingCommands:
 			op.Propose(pCmd)
 			break

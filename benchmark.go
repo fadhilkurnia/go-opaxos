@@ -497,6 +497,12 @@ func (b *Benchmark) RunPipelineClient() {
 				}
 			}()
 
+			// wait before starting a client, reducing the chane of multiple clients start
+			// at the same time
+			if limiter != nil {
+				limiter.Wait()
+			}
+
 			// send command to server until finished
 			clientStartTime := time.Now()
 			reqCounter := 0
