@@ -33,6 +33,7 @@
     "N": 10000,
     "K": 9,
     "W": 1.0,
+    "Size": 50,
     "Throttle": 0,
     "Concurrency": 1,
     "Distribution": "uniform",
