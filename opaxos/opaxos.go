@@ -88,7 +88,7 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		ssJobs:               make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
 		pendingCommands:      make(chan *SecretSharedCommand, cfg.ChanBufferSize),
 		onOffPendingCommands: nil,
-		numSSWorkers:         maxInt(10, runtime.GOMAXPROCS(-1)),
+		numSSWorkers:         maxInt(15, runtime.NumCPU()),
 		K:                    cfg.Protocol.Threshold,
 		N:                    n.GetConfig().N(),
 		Q1:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
