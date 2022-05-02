@@ -88,7 +88,7 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		ssJobs:               make(chan *paxi.ClientBytesCommand, cfg.ChanBufferSize),
 		pendingCommands:      make(chan *SecretSharedCommand, cfg.ChanBufferSize),
 		onOffPendingCommands: nil,
-		numSSWorkers:         maxInt(15, runtime.NumCPU()),
+		numSSWorkers:         runtime.NumCPU(),
 		K:                    cfg.Protocol.Threshold,
 		N:                    n.GetConfig().N(),
 		Q1:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
@@ -206,11 +206,4 @@ func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
 		log.Errorf("unknown protocol messages")
 	}
 	return nil
-}
-
-func maxInt(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

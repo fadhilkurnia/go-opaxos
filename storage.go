@@ -56,7 +56,7 @@ func (s *PersistentStorage) GetBallot() (Ballot, error) {
 	return Ballot(binary.BigEndian.Uint64(ballotByte)), err
 }
 
-func (s *PersistentStorage) PersistValue(slot int, value []byte) error {
+func (s *PersistentStorage) PersistValue(slot int, ballot Ballot, value []byte) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		keyByte := make([]byte, 8)
 		binary.BigEndian.PutUint64(keyByte, uint64(slot))
