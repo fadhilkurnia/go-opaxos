@@ -148,11 +148,18 @@ func (op *OPaxos) run() {
 	for err == nil {
 		select {
 		case rCmd := <-op.rawCommands:
-			op.ssJobs <- rCmd
-
 			// start phase 1 if this proposer has not started it previously
 			if !op.IsLeader && op.ballot.ID() != op.ID() {
 				op.Prepare()
+			}
+
+			// secret-shares the first and the remaining raw commands
+			op.ssJobs <- rCmd
+			numRawCmd := len(op.rawCommands)
+			for numRawCmd > 0 {
+				rCmd = <-op.rawCommands
+				op.ssJobs <- rCmd
+				numRawCmd--
 			}
 			break
 
@@ -162,23 +169,15 @@ func (op *OPaxos) run() {
 			op.Propose(pCmd)
 			break
 
-		//	protocol messages have higher priority compared to
-		//	raw and pending commands
+		//	protocol messages have higher priority compared to pending commands
 		case pMsg := <-op.protocolMessages:
 			err = op.handleProtocolMessages(pMsg)
+			numPMsg := len(op.protocolMessages)
+			for numPMsg > 0 && err == nil {
+				err = op.handleProtocolMessages(<-op.protocolMessages)
+				numPMsg--
+			}
 			break
-		//case pMsg := <-op.protocolMessages:
-		//	err = op.handleProtocolMessages(pMsg)
-		//	break
-		//case pMsg := <-op.protocolMessages:
-		//	err = op.handleProtocolMessages(pMsg)
-		//	break
-		//case pMsg := <-op.protocolMessages:
-		//	err = op.handleProtocolMessages(pMsg)
-		//	break
-		//case pMsg := <-op.protocolMessages:
-		//	err = op.handleProtocolMessages(pMsg)
-		//	break
 		}
 	}
 

@@ -69,19 +69,12 @@ func (p *Paxos) run() {
 
 		case pcmd := <-p.protocolMessages:
 			p.handleProtocolMessages(pcmd)
+			numPMsg := len(p.protocolMessages)
+			for numPMsg > 0 {
+				p.handleProtocolMessages(<-p.protocolMessages)
+				numPMsg--
+			}
 			break
-		//case pcmd := <-p.protocolMessages:
-		//	p.handleProtocolMessages(pcmd)
-		//	break
-		//case pcmd := <-p.protocolMessages:
-		//	p.handleProtocolMessages(pcmd)
-		//	break
-		//case pcmd := <-p.protocolMessages:
-		//	p.handleProtocolMessages(pcmd)
-		//	break
-		//case pcmd := <-p.protocolMessages:
-		//	p.handleProtocolMessages(pcmd)
-		//	break
 		}
 	}
 }
