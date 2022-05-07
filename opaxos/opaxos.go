@@ -167,18 +167,18 @@ func (op *OPaxos) run() {
 		case pMsg := <-op.protocolMessages:
 			err = op.handleProtocolMessages(pMsg)
 			break
-		case pMsg := <-op.protocolMessages:
-			err = op.handleProtocolMessages(pMsg)
-			break
-		case pMsg := <-op.protocolMessages:
-			err = op.handleProtocolMessages(pMsg)
-			break
-		case pMsg := <-op.protocolMessages:
-			err = op.handleProtocolMessages(pMsg)
-			break
-		case pMsg := <-op.protocolMessages:
-			err = op.handleProtocolMessages(pMsg)
-			break
+		//case pMsg := <-op.protocolMessages:
+		//	err = op.handleProtocolMessages(pMsg)
+		//	break
+		//case pMsg := <-op.protocolMessages:
+		//	err = op.handleProtocolMessages(pMsg)
+		//	break
+		//case pMsg := <-op.protocolMessages:
+		//	err = op.handleProtocolMessages(pMsg)
+		//	break
+		//case pMsg := <-op.protocolMessages:
+		//	err = op.handleProtocolMessages(pMsg)
+		//	break
 		}
 	}
 
