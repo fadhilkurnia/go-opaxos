@@ -110,7 +110,6 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			numPendingCmds := len(op.pendingCommands)
 			for i := 0; i < numPendingCmds; i++ {
 				pcmd := <-op.pendingCommands
-				log.Debugf("propose right after becoming a leader")
 				op.Propose(pcmd)
 			}
 

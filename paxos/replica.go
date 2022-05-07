@@ -46,7 +46,7 @@ func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
 }
 
 func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientBytesCommand) {
-	r.Paxos.pendingCommands <- ccmd
+	r.Paxos.rawCommands <- ccmd
 }
 
 func (r *Replica) RunWithChannel() {
@@ -80,9 +80,9 @@ func (r *Replica) RunWithChannel() {
 //	}
 //}
 
-func (r *Replica) handleBytesCommand(m *paxi.ClientBytesCommand) {
-	r.Paxos.HandleRequest(m)
-}
+//func (r *Replica) handleBytesCommand(m *paxi.ClientBytesCommand) {
+//	r.Paxos.HandleRequest(m)
+//}
 
 //func (r *Replica) readInProgress(m paxi.Request) (paxi.Value, bool) {
 //	// TODO

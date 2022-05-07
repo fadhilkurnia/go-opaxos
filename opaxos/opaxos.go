@@ -44,7 +44,7 @@ type OPaxos struct {
 	defaultSSWorker      secretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
 	protocolMessages     chan interface{}              // prepare, propose, commit, etc
 	rawCommands          chan *paxi.ClientBytesCommand // raw commands from clients
-	ssJobs               chan *paxi.ClientBytesCommand // raw commands ready to be secret shared
+	ssJobs               chan *paxi.ClientBytesCommand // raw commands ready to be secret-shared
 	pendingCommands      chan *SecretSharedCommand     // pending commands that will be proposed
 	onOffPendingCommands chan *SecretSharedCommand     // non nil pointer to pendingCommands after get response for phase 1
 
@@ -148,7 +148,7 @@ func (op *OPaxos) run() {
 	for err == nil {
 		select {
 		case rCmd := <-op.rawCommands:
-			// start phase 1 if this proposer has not started it previously
+			// start phase-1 if this proposer has not started it previously
 			if !op.IsLeader && op.ballot.ID() != op.ID() {
 				op.Prepare()
 			}
@@ -167,14 +167,12 @@ func (op *OPaxos) run() {
 		// see OPaxos.HandlePrepareResponse for more detail
 		case pCmd := <-op.onOffPendingCommands:
 			op.Propose(pCmd)
-			numPCmd := len(op.onOffPendingCommands)
-			for numPCmd > 0 {
-				op.Propose(<-op.onOffPendingCommands)
-				numPCmd--
-			}
 			break
 
-		//	protocol messages have higher priority compared to pending commands
+		// protocolMessages has higher priority.
+		// We try to empty the protocolMessages in each loop since for every
+		// client command potentially it will create O(N) protocol messages (propose & commit),
+		// where N is the number of nodes in the consensus cluster
 		case pMsg := <-op.protocolMessages:
 			err = op.handleProtocolMessages(pMsg)
 			numPMsg := len(op.protocolMessages)

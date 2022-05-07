@@ -3,6 +3,7 @@ package paxos
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/vmihailenco/msgpack/v5"
@@ -28,10 +29,12 @@ type Paxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	quorum           *paxi.Quorum                  // phase 1 quorum
-	requests         []*paxi.ClientBytesCommand    // phase 1 pending requests
-	protocolMessages chan interface{}              // prepare, propose, commit, etc
-	pendingCommands  chan *paxi.ClientBytesCommand // pending commands from clients
+	quorum               *paxi.Quorum                  // phase 1 quorum
+	requests             []*paxi.ClientBytesCommand    // phase 1 pending requests
+	protocolMessages     chan interface{}              // prepare, propose, commit, etc
+	rawCommands          chan *paxi.ClientBytesCommand // raw commands from clients
+	pendingCommands      chan *paxi.ClientBytesCommand // pending commands ready to be proposed
+	onOffPendingCommands chan *paxi.ClientBytesCommand // non nil pointer to pendingCommands after get response for phase 1
 
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
@@ -41,15 +44,17 @@ type Paxos struct {
 // NewPaxos creates new paxos instance
 func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 	p := &Paxos{
-		Node:             n,
-		log:              make(map[int]*entry, paxi.GetConfig().BufferSize),
-		slot:             -1,
-		quorum:           paxi.NewQuorum(),
-		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
-		pendingCommands:  make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
-		Q1:               func(q *paxi.Quorum) bool { return q.Majority() },
-		Q2:               func(q *paxi.Quorum) bool { return q.Majority() },
-		ReplyWhenCommit:  false,
+		Node:                 n,
+		log:                  make(map[int]*entry, paxi.GetConfig().BufferSize),
+		slot:                 -1,
+		quorum:               paxi.NewQuorum(),
+		protocolMessages:     make(chan interface{}, paxi.GetConfig().ChanBufferSize),
+		rawCommands:          make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		pendingCommands:      make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		onOffPendingCommands: nil,
+		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
+		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
+		ReplyWhenCommit:      false,
 	}
 
 	for _, opt := range options {
@@ -63,15 +68,35 @@ func (p *Paxos) run() {
 	var err error
 	for err == nil {
 		select {
-		case cmd := <-p.pendingCommands:
-			p.HandleRequest(cmd)
-			numCmd := len(p.pendingCommands)
-			for numCmd > 0 {
-				p.HandleRequest(<-p.pendingCommands)
-				numCmd--
+		case cmd := <-p.rawCommands:
+			// start phase 1 if this proposer has not started it previously
+			if !p.active && p.ballot.ID() != p.ID() {
+				p.P1a()
+			}
+
+			// put commands in the pendingCommands channel
+			// the commands will be proposed after this node
+			// successfully run phase-1
+			// (onOffPendingCommands will point to pendingCommands)
+			p.pendingCommands <- cmd
+			numRawCmd := len(p.rawCommands)
+			for numRawCmd > 0 {
+				cmd = <-p.rawCommands
+				p.pendingCommands <- cmd
+				numRawCmd--
 			}
 			break
 
+		// onOffPendingCommands is nil before this replica successfully running phase-1
+		// see Paxos.HandleP1b for more detail
+		case pCmd := <-p.onOffPendingCommands:
+			p.P2a(pCmd)
+			break
+
+		// protocolMessages has higher priority.
+		// We try to empty the protocolMessages in each loop since for every
+		// client command potentially it will create O(N) protocol messages (propose & commit),
+		// where N is the number of nodes in the consensus cluster
 		case pcmd := <-p.protocolMessages:
 			p.handleProtocolMessages(pcmd)
 			numPMsg := len(p.protocolMessages)
@@ -82,6 +107,8 @@ func (p *Paxos) run() {
 			break
 		}
 	}
+
+	panic(fmt.Sprintf("paxos exited its main loop: %v", err))
 }
 
 func (p *Paxos) handleProtocolMessages(pmsg interface{}) {
@@ -250,16 +277,17 @@ func (p *Paxos) HandleP1b(m P1b) {
 
 	// old message
 	if m.Ballot < p.ballot || p.active {
-		// log.Debugf("Replica %s ignores old message [%v]\n", p.ID(), m)
+		log.Debugf("Replica %s ignores old message [%v]\n", p.ID(), m)
 		return
 	}
 
 	// reject message
 	if m.Ballot > p.ballot {
 		p.ballot = m.Ballot
-		p.active = false // not necessary
+		p.active = false
+		p.onOffPendingCommands = nil
 		// forward pending requests to new leader
-		//p.forward()
+		// p.forward()
 		// p.P1a()
 	}
 
@@ -268,6 +296,7 @@ func (p *Paxos) HandleP1b(m P1b) {
 		p.quorum.ACK(m.ID)
 		if p.Q1(p.quorum) {
 			p.active = true
+
 			// propose any uncommitted entries
 			for i := p.execute; i <= p.slot; i++ {
 				// TODO nil gap?
@@ -283,12 +312,15 @@ func (p *Paxos) HandleP1b(m P1b) {
 					Command: p.log[i].command.Data,
 				})
 			}
-			// propose new commands
-			numPendingRequests := len(p.requests)
+
+			// propose pending commands
+			numPendingRequests := len(p.pendingCommands)
 			for i := 0; i < numPendingRequests; i++ {
-				p.P2a(p.requests[i])
+				pCmd := <-p.pendingCommands
+				p.P2a(pCmd)
 			}
-			p.requests = nil
+
+			p.onOffPendingCommands = p.pendingCommands
 		}
 	}
 }
