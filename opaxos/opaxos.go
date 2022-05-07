@@ -167,6 +167,11 @@ func (op *OPaxos) run() {
 		// see OPaxos.HandlePrepareResponse for more detail
 		case pCmd := <-op.onOffPendingCommands:
 			op.Propose(pCmd)
+			numPCmd := len(op.onOffPendingCommands)
+			for numPCmd > 0 {
+				op.Propose(<-op.onOffPendingCommands)
+				numPCmd--
+			}
 			break
 
 		//	protocol messages have higher priority compared to pending commands

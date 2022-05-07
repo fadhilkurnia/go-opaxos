@@ -65,6 +65,11 @@ func (p *Paxos) run() {
 		select {
 		case cmd := <-p.pendingCommands:
 			p.HandleRequest(cmd)
+			numCmd := len(p.pendingCommands)
+			for numCmd > 0 {
+				p.HandleRequest(<-p.pendingCommands)
+				numCmd--
+			}
 			break
 
 		case pcmd := <-p.protocolMessages:
