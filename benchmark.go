@@ -462,6 +462,7 @@ func (b *Benchmark) RunPipelineClient() {
 			defer clientWaiter.Done()
 
 			isClientFinished := false
+			var clientErr error = nil
 			timesUpFlag := make(chan bool)
 
 			if b.T != 0 {
@@ -520,7 +521,7 @@ func (b *Benchmark) RunPipelineClient() {
 					// without waiting for the response
 					now := time.Now()
 					log.Debugf("sending write command at %v", now.UnixNano())
-					err = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(GenericCommand{
 						CommandID: uint32(reqCounter),
 						Operation: OP_WRITE,
 						Key:       keyBuff,
@@ -530,7 +531,7 @@ func (b *Benchmark) RunPipelineClient() {
 				} else { // issuing read request
 					now := time.Now()
 					log.Debugf("sending read command at %v", now.UnixNano())
-					err = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(GenericCommand{
 						CommandID: uint32(reqCounter),
 						Operation: OP_READ,
 						Key:       keyBuff,
@@ -538,7 +539,11 @@ func (b *Benchmark) RunPipelineClient() {
 					})
 				}
 
-				reqCounter++
+				if clientErr == nil {
+					reqCounter++
+				} else {
+					log.Errorf("failed to send command %v", clientErr)
+				}
 
 				// stop if this client already send N requests
 				if b.N > 0 && reqCounter == b.N {
@@ -632,6 +637,7 @@ func (b *Benchmark) RunBlockingClient() {
 		go func(clientID int, dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
 			defer clientWaiter.Done()
 
+			var clientErr error = nil
 			isClientFinished := false
 			timesUpFlag := make(chan bool)
 			receiverCh := dbClient.GetReceiverChannel()
@@ -660,7 +666,7 @@ func (b *Benchmark) RunBlockingClient() {
 					// without waiting for the response
 					now := time.Now()
 					log.Debugf("sending write command at %v", now.UnixNano())
-					err = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(GenericCommand{
 						CommandID: uint32(reqCounter),
 						Operation: OP_WRITE,
 						Key:       keyBuff,
@@ -670,14 +676,19 @@ func (b *Benchmark) RunBlockingClient() {
 				} else { // issuing read request
 					now := time.Now()
 					log.Debugf("sending read command at %v", now.UnixNano())
-					err = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(GenericCommand{
 						CommandID: uint32(reqCounter),
 						Operation: OP_READ,
 						Key:       keyBuff,
 						SentAt:    now.UnixNano(),
 					})
 				}
-				reqCounter++
+
+				if clientErr == nil {
+					reqCounter++
+				} else {
+					log.Errorf("failed to send command %v", clientErr)
+				}
 
 				// wait for the response
 				resp := <-receiverCh
