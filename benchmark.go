@@ -492,13 +492,22 @@ func (b *Benchmark) RunPipelineClient() {
 					case resp := <-receiverCh:
 						latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
 						respCounter++
+
+						// empty the receiver channel
+						nResp := len(receiverCh)
+						for nResp>0 {
+							nResp--
+							resp = <-receiverCh
+							latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+							respCounter++
+						}
 						break
 
 					}
 				}
 			}()
 
-			// wait before starting a client, reducing the chane of multiple clients start
+			// wait before starting a client, reducing the chance of multiple clients start
 			// at the same time
 			if limiter != nil {
 				limiter.Wait()
@@ -556,6 +565,7 @@ func (b *Benchmark) RunPipelineClient() {
 					select {
 					case _ = <-timesUpFlag:
 						isClientFinished = true
+						log.Debugf("stopping client-%d", clientID)
 						continue
 					default:
 					}

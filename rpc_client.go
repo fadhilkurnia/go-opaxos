@@ -528,6 +528,10 @@ func (c *DefaultDBClient) _putResponseToChannel() {
 				break
 			}
 
+			if len(c.responseCh) >= GetConfig().ChanBufferSize {
+				log.Warningf("receiver channel is full (len=%d)", len(c.responseCh))
+			}
+
 			c.responseCh <- resp
 		}
 	}
