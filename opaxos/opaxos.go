@@ -155,15 +155,13 @@ func (op *OPaxos) run() {
 			}
 
 			// secret-shares the first and the remaining raw commands
-			go func() {
+			op.ssJobs <- rCmd
+			numRawCmd := len(op.rawCommands)
+			for numRawCmd > 0 {
+				rCmd = <-op.rawCommands
 				op.ssJobs <- rCmd
-				numRawCmd := len(op.rawCommands)
-				for numRawCmd > 0 {
-					rCmd = <-op.rawCommands
-					op.ssJobs <- rCmd
-					numRawCmd--
-				}
-			}()
+				numRawCmd--
+			}
 			break
 
 		// onOffPendingCommands is nil before this replica successfully running phase-1

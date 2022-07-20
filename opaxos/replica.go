@@ -6,14 +6,6 @@ import (
 	"strings"
 )
 
-const (
-	HTTPHeaderSlot         = "Slot"
-	HTTPHeaderBallot       = "Ballot"
-	HTTPHeaderExecute      = "Execute"
-	HTTPHeaderInProgress   = "Inprogress"
-	HTTPHeaderEncodingTime = "Encoding"
-)
-
 type Replica struct {
 	paxi.Node
 	*OPaxos
