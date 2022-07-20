@@ -12,6 +12,7 @@ import (
 )
 
 var isPprof = flag.Bool("pprof", false, "activate pprof server")
+var ConnType = flag.String("connection", "udp", "connection used between client and node, options: tcp, http, udp")
 
 // Node is the primary access point for every replica
 // it includes networking, state machine and RESTful API server

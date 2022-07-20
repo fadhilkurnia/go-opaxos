@@ -2,6 +2,7 @@ package paxi
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -9,6 +10,12 @@ import (
 
 // Key type of the key-value database
 type Key int
+
+func (k Key) ToBytes() []byte {
+	buff := make([]byte, 4)
+	binary.BigEndian.PutUint32(buff, uint32(k))
+	return buff
+}
 
 // Value type of key-value database
 type Value []byte

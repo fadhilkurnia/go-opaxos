@@ -20,7 +20,11 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 		if op.log[s] == nil || op.log[s].commit {
 			continue
 		}
-		l[s] = CommandShare{op.log[s].ballot, op.log[s].command.Data}
+		l[s] = CommandShare{
+			Ballot:    op.log[s].ballot,
+			OriBallot: op.log[s].oriBallot,
+			Command:   op.log[s].command.Data,
+		}
 	}
 
 	// Send P1b back to proposer / leader
@@ -60,18 +64,18 @@ func (op *OPaxos) HandleProposeRequest(m P2a) {
 			if !e.commit && m.Ballot > e.ballot && e.command != nil {
 				e.command = &paxi.ClientBytesCommand{
 					BytesCommand: &bc,
-					RPCMessage: nil,
+					RPCMessage:   nil,
 				}
 			}
 			e.ballot = m.Ballot
 		} else {
 			op.log[m.Slot] = &entry{
-				ballot:  m.Ballot,
+				ballot: m.Ballot,
 				command: &paxi.ClientBytesCommand{
 					BytesCommand: &bc,
-					RPCMessage: nil,
+					RPCMessage:   nil,
 				},
-				commit:  false,
+				commit: false,
 			}
 		}
 	}

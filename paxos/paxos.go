@@ -79,12 +79,12 @@ func (p *Paxos) run() {
 			// successfully run phase-1
 			// (onOffPendingCommands will point to pendingCommands)
 			p.pendingCommands <- cmd
-			numRawCmd := len(p.rawCommands)
-			for numRawCmd > 0 {
-				cmd = <-p.rawCommands
-				p.pendingCommands <- cmd
-				numRawCmd--
-			}
+			//numRawCmd := len(p.rawCommands)
+			//for numRawCmd > 0 {
+			//	cmd = <-p.rawCommands
+			//	p.pendingCommands <- cmd
+			//	numRawCmd--
+			//}
 			break
 
 		// onOffPendingCommands is nil before this replica successfully running phase-1
@@ -533,7 +533,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
 
 	} else {
-		log.Errorf("unknown client stateful property, dooes not know how to handle the command")
+		log.Errorf("unknown client stateful property, does not know how to handle the command")
 		reply.OK = false
 	}
 

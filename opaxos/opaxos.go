@@ -11,7 +11,8 @@ import (
 
 // entry in the log
 type entry struct {
-	ballot    paxi.Ballot              // the leadership ballot number
+	ballot    paxi.Ballot              // the accepted ballot number
+	oriBallot paxi.Ballot              // TODO: oriBallot is the original ballot of the secret value
 	command   *paxi.ClientBytesCommand // clear or secret shared command in []bytes, with reply writer
 	commit    bool                     // commit indicates whether this entry is already committed or not
 	quorum    *paxi.Quorum             // phase-2 quorum
@@ -41,7 +42,7 @@ type OPaxos struct {
 	slot    int            // highest slot number
 
 	numSSWorkers         int                           // number of workers to secret-share client's raw command
-	defaultSSWorker      secretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
+	defaultSSWorker      SecretSharingWorker           // secret-sharing worker for reconstruction only, used without channel
 	protocolMessages     chan interface{}              // prepare, propose, commit, etc
 	rawCommands          chan *paxi.ClientBytesCommand // raw commands from clients
 	ssJobs               chan *paxi.ClientBytesCommand // raw commands ready to be secret-shared
@@ -126,8 +127,8 @@ func (op *OPaxos) initAndRunSecretSharingWorker() {
 		numShares = op.config.Protocol.Quorum2 - 1
 	}
 
-	worker := newWorker(op.algorithm, numShares, numThreshold)
-	worker.startProcessingInput(op.ssJobs, op.pendingCommands)
+	worker := NewWorker(op.algorithm, numShares, numThreshold)
+	worker.StartProcessingInput(op.ssJobs, op.pendingCommands)
 }
 
 func (op *OPaxos) initDefaultSecretSharingWorker() {
@@ -138,7 +139,7 @@ func (op *OPaxos) initDefaultSecretSharingWorker() {
 		numShares = op.config.Protocol.Quorum2 - 1
 	}
 
-	op.defaultSSWorker = newWorker(op.algorithm, numShares, numThreshold)
+	op.defaultSSWorker = NewWorker(op.algorithm, numShares, numThreshold)
 }
 
 // run is the main event processing loop
@@ -155,12 +156,12 @@ func (op *OPaxos) run() {
 
 			// secret-shares the first and the remaining raw commands
 			op.ssJobs <- rCmd
-			numRawCmd := len(op.rawCommands)
-			for numRawCmd > 0 {
-				rCmd = <-op.rawCommands
-				op.ssJobs <- rCmd
-				numRawCmd--
-			}
+			//numRawCmd := len(op.rawCommands)
+			//for numRawCmd > 0 {
+			//	rCmd = <-op.rawCommands
+			//	op.ssJobs <- rCmd
+			//	numRawCmd--
+			//}
 			break
 
 		// onOffPendingCommands is nil before this replica successfully running phase-1

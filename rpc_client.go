@@ -670,7 +670,7 @@ func (c *UDSDBClient) _putResponseToChannel() {
 
 // SendCommand sends paxi.GenericCommand to rpc server
 // request message: GenericCommand
-// response message: CommandResponse
+// response message: CommandReply
 // check paxi.node.handleGenericCommand for the receiver implementation
 func (c *UDSDBClient) SendCommand(req interface{}) error {
 	cmd := req.(GenericCommand)

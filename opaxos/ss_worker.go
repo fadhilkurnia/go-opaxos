@@ -9,15 +9,19 @@ import (
 	"time"
 )
 
-type secretSharingWorker struct {
-	randomizer *csprng.CSPRNG
-	algorithm  string
+type SecretSharingWorker struct {
+	randomizer   *csprng.CSPRNG
+	algorithm    string
 	numShares    int
 	numThreshold int
 }
 
-func newWorker(algorithm string, numShares, numThreshold int) secretSharingWorker {
-	return secretSharingWorker{
+func (s *SecretSharingWorker) GetT() int {
+	return s.numThreshold
+}
+
+func NewWorker(algorithm string, numShares, numThreshold int) SecretSharingWorker {
+	return SecretSharingWorker{
 		csprng.NewCSPRNG(),
 		algorithm,
 		numShares,
@@ -25,9 +29,10 @@ func newWorker(algorithm string, numShares, numThreshold int) secretSharingWorke
 	}
 }
 
-func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.ClientBytesCommand, outputChannel chan *SecretSharedCommand) {
+func (w *SecretSharingWorker) StartProcessingInput(inputChannel chan *paxi.ClientBytesCommand, outputChannel chan *SecretSharedCommand) {
 	for req := range inputChannel {
-		ss, ssTime, err := w.secretShareCommand(req.Data)
+		log.Debugf("processing rawCmd %v", req)
+		ss, ssTime, err := w.SecretShareCommand(req.Data)
 		if err != nil {
 			log.Errorf("failed to do secret sharing: %v", err)
 		}
@@ -35,7 +40,7 @@ func (w *secretSharingWorker) startProcessingInput(inputChannel chan *paxi.Clien
 	}
 }
 
-func (w *secretSharingWorker) secretShareCommand(cmdBytes []byte) ([][]byte, time.Duration, error) {
+func (w *SecretSharingWorker) SecretShareCommand(cmdBytes []byte) ([][]byte, time.Duration, error) {
 	var err error
 	var secretShares [][]byte
 

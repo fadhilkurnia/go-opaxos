@@ -41,8 +41,12 @@ type P1b struct {
 
 // CommandShare combines each secret-shared command with its ballot number
 type CommandShare struct {
-	Ballot paxi.Ballot // Obn: original ballot-number
-	Command []byte      // Cmd: the secret-shared command being proposed
+	Ballot    paxi.Ballot // the accepted ballot number
+	OriBallot paxi.Ballot // the original ballot-number
+	Command   []byte      // the secret-share of value being proposed
+	ID        paxi.ID
+	History   []string
+	ValID     string
 }
 
 func (m P1b) String() string {
@@ -52,11 +56,10 @@ func (m P1b) String() string {
 // P2a propose message from proposer to acceptor in Phase 2
 // accept message.
 type P2a struct {
-	Ballot paxi.Ballot    // the proposer's ballot-number
-	SSCmds []CommandShare // a batch of CommandShare
-
-	Slot    int
-	Command []byte
+	Ballot    paxi.Ballot // the proposer's ballot-number
+	Slot      int         // the slot to be filled
+	Command   []byte      // the proposed secret-shares
+	OriBallot paxi.Ballot // the value's original ballot
 }
 
 func (m P2a) String() string {
@@ -80,8 +83,6 @@ func (m P2b) String() string {
 // P3 message issued by proposer/leader to persist a previously accepted value
 type P3 struct {
 	Ballot paxi.Ballot // the proposer's ballot-number
-	Slots  []int       // a batch of slot number being committed
-
 	Slot   int
 }
 
@@ -97,6 +98,6 @@ type SSBytesRequest struct {
 
 type SecretSharedCommand struct {
 	*paxi.ClientBytesCommand               // pointer to the client's command
-	ssTime                   time.Duration // time taken to secret-share the command
-	ssCommands               [][]byte      // the secret-shared commands
+	SSTime                   time.Duration // time taken to secret-share the command
+	SSCommands               [][]byte      // the secret-shared commands
 }

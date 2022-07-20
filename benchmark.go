@@ -702,8 +702,12 @@ func (b *Benchmark) RunBlockingClient() {
 
 				// wait for the response
 				resp := <-receiverCh
-				latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
-				encodeTimes <- resp.EncodeTime
+				if resp.OK {
+					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+					encodeTimes <- resp.EncodeTime
+				} else {
+					log.Debugf("receive non-ok response")
+				}
 
 				// stop if this client already send N requests
 				if b.N > 0 && reqCounter == b.N {

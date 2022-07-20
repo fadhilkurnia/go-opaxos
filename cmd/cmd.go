@@ -61,7 +61,7 @@ func main() {
 		}
 
 	default:
-		client = paxi.NewHTTPClient(paxi.ID(*id))
+		client = paxi.NewUDPClient(paxi.ID(*id))
 	}
 
 	if len(flag.Args()) > 0 {

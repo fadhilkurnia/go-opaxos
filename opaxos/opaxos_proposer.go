@@ -31,9 +31,10 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	op.log[op.slot] = &entry{
 		ballot:    op.ballot,
 		command:   r.ClientBytesCommand,
+		oriBallot: op.ballot,
 		quorum:    paxi.NewQuorum(),
 		timestamp: time.Now(),
-		ssTime:    r.ssTime,
+		ssTime:    r.SSTime,
 	}
 
 	log.Debugf("get cmd for slot %d", op.slot)
@@ -46,12 +47,13 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 
 	// TODO: broadcast clear message to trusted acceptors, secret-shared message to untrusted acceptors
 	// for now we are sending secret-shared only
-	proposeRequests := make([]interface{}, len(r.ssCommands))
-	for i := 0; i < len(r.ssCommands); i++ {
+	proposeRequests := make([]interface{}, len(r.SSCommands))
+	for i := 0; i < len(r.SSCommands); i++ {
 		proposeRequests[i] = P2a{
-			Ballot:  op.ballot,
-			Slot:    op.slot,
-			Command: r.ssCommands[i],
+			Ballot:    op.ballot,
+			Slot:      op.slot,
+			Command:   r.SSCommands[i],
+			OriBallot: op.ballot,
 		}
 	}
 
@@ -170,7 +172,7 @@ func (op *OPaxos) proposeUncommittedEntries() {
 		}
 
 		// regenerate secret-shared command
-		newSSCommands, ssTime, err := op.defaultSSWorker.secretShareCommand(op.log[i].command.Data)
+		newSSCommands, ssTime, err := op.defaultSSWorker.SecretShareCommand(op.log[i].command.Data)
 		if err != nil {
 			log.Errorf("failed to secret share command %v", err)
 			continue

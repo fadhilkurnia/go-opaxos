@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"github.com/ailidani/paxi/fastopaxos"
+	"github.com/ailidani/paxi/fastpaxos"
 	"github.com/ailidani/paxi/opaxos"
 	"sync"
 
@@ -48,7 +50,7 @@ func replica(id paxi.ID) {
 		sdpaxos.NewReplica(id).Run()
 
 	case "wpaxos":
-		//wpaxos.NewReplica(id).Run()
+		panic("wpaxos is unimplemented")
 
 	case "abd":
 		abd.NewReplica(id).Run()
@@ -63,10 +65,10 @@ func replica(id paxi.ID) {
 		wankeeper.NewReplica(id).Run()
 
 	case "kpaxos":
-		//kpaxos.NewReplica(id).Run()
+		panic("kpaxos is unimplemented")
 
 	case "paxos_groups":
-		//paxos_group.NewReplica(id).Run()
+		panic("paxos_groups is unimplemented")
 
 	case "dynamo":
 		dynamo.NewReplica(id).Run()
@@ -75,13 +77,19 @@ func replica(id paxi.ID) {
 		blockchain.NewMiner(id).Run()
 
 	case "m2paxos":
-		//m2paxos.NewReplica(id).Run()
+		panic("m2paxos is unimplemented")
 
 	case "hpaxos":
 		hpaxos.NewReplica(id).Run()
 
 	case "opaxos":
 		opaxos.NewReplica(id).RunWithWorker()
+
+	case "fastpaxos":
+		fastpaxos.NewReplica(id).RunWithChannel()
+
+	case "fastopaxos":
+		fastopaxos.NewReplica(id).RunWithWorker()
 
 	default:
 		panic("Unknown algorithm")

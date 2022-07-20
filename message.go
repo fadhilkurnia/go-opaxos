@@ -139,9 +139,9 @@ type CommandReply struct {
 	Data       []byte
 }
 
-func UnmarshalCommandReply(bufer []byte) (*CommandReply, error) {
+func UnmarshalCommandReply(buffer []byte) (*CommandReply, error) {
 	cr := &CommandReply{}
-	err := msgpack.Unmarshal(bufer, cr)
+	err := msgpack.Unmarshal(buffer, cr)
 	return cr, err
 }
 
