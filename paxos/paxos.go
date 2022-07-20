@@ -78,13 +78,15 @@ func (p *Paxos) run() {
 			// the commands will be proposed after this node
 			// successfully run phase-1
 			// (onOffPendingCommands will point to pendingCommands)
-			p.pendingCommands <- cmd
-			//numRawCmd := len(p.rawCommands)
-			//for numRawCmd > 0 {
-			//	cmd = <-p.rawCommands
-			//	p.pendingCommands <- cmd
-			//	numRawCmd--
-			//}
+			go func() {
+				p.pendingCommands <- cmd
+				numRawCmd := len(p.rawCommands)
+				for numRawCmd > 0 {
+					cmd = <-p.rawCommands
+					p.pendingCommands <- cmd
+					numRawCmd--
+				}
+			}()
 			break
 
 		// onOffPendingCommands is nil before this replica successfully running phase-1
