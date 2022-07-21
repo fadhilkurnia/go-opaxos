@@ -39,6 +39,8 @@ type Paxos struct {
 	Q1              func(*paxi.Quorum) bool
 	Q2              func(*paxi.Quorum) bool
 	ReplyWhenCommit bool
+
+	buffer []byte
 }
 
 // NewPaxos creates new paxos instance
@@ -55,6 +57,7 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		ReplyWhenCommit:      false,
+		buffer:               make([]byte, 16),
 	}
 
 	for _, opt := range options {
@@ -544,13 +547,16 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 
 func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
 	storage := p.GetPersistentStorage()
+	if storage == nil {
+		return
+	}
 	buff := make([]byte, 8)
 	binary.BigEndian.PutUint64(buff, uint64(b))
 	_, err := storage.Write(buff)
 	if err != nil {
 		log.Errorf("failed to store max ballot: %v", err)
 	}
-	err = storage.Sync()
+	err = storage.Flush()
 	if err != nil {
 		log.Errorf("failed to sync storage: %v", err)
 	}
@@ -558,6 +564,9 @@ func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
 
 func (p *Paxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
 	storage := p.GetPersistentStorage()
+	if storage == nil {
+		return
+	}
 	buff := make([]byte, 16)
 	binary.BigEndian.PutUint64(buff[:8], uint64(slot))
 	binary.BigEndian.PutUint64(buff[8:], uint64(b))
@@ -567,7 +576,7 @@ func (p *Paxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
 	if _, err := storage.Write(val); err != nil {
 		log.Errorf("failed to store accepted value: %v", err)
 	}
-	if err := storage.Sync(); err != nil {
+	if err := storage.Flush(); err != nil {
 		log.Errorf("failed to sync storage: %v", err)
 	}
 }

@@ -1,8 +1,8 @@
 package paxi
 
 import (
+	"bufio"
 	"flag"
-	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -27,7 +27,7 @@ type Node interface {
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
 	GetConfig() *Config
-	GetPersistentStorage() *os.File
+	GetPersistentStorage() *bufio.Writer
 }
 
 // node implements Node interface
@@ -40,7 +40,7 @@ type node struct {
 	ProtocolMsgChan chan interface{}
 	handles         map[string]reflect.Value
 	server          *http.Server
-	storage         *os.File
+	storage         *bufio.Writer
 
 	sync.RWMutex
 	forwards map[string]*Request
@@ -48,7 +48,6 @@ type node struct {
 
 // NewNode creates a new Node object from configuration
 func NewNode(id ID) Node {
-	var err error
 	n := &node{
 		id:              id,
 		Socket:          NewSocket(id, config.Addrs),
@@ -57,15 +56,17 @@ func NewNode(id ID) Node {
 		ProtocolMsgChan: make(chan interface{}, config.ChanBufferSize),
 		handles:         make(map[string]reflect.Value),
 		forwards:        make(map[string]*Request),
-		storage: nil,
+		storage:         nil,
 	}
 
 	storageFile := config.StoragePath
-	if storageFile == "" {
-		storageFile = fmt.Sprintf("/tmp/paxi_storage_%s", id)
-	}
-	if n.storage, err = os.Create(storageFile); err != nil {
-		log.Fatal(err)
+	if storageFile != "" {
+		var f *os.File
+		var err error
+		if f, err = os.Create(storageFile); err != nil {
+			log.Fatal(err)
+		}
+		n.storage = bufio.NewWriter(f)
 	}
 
 	return n
@@ -79,7 +80,7 @@ func (n *node) GetConfig() *Config {
 	return &config
 }
 
-func (n *node) GetPersistentStorage() *os.File {
+func (n *node) GetPersistentStorage() *bufio.Writer {
 	return n.storage
 }
 

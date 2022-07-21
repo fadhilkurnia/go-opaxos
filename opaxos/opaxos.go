@@ -50,9 +50,7 @@ type OPaxos struct {
 	pendingCommands      chan *SecretSharedCommand     // pending commands that will be proposed
 	onOffPendingCommands chan *SecretSharedCommand     // non nil pointer to pendingCommands after get response for phase 1
 
-	//rawRequests chan *paxi.BytesRequest // raw requests, ready to be secret-shared
-	//ssRequests  chan *SSBytesRequest    // phase 1 pending requests
-	//storage      paxi.PersistentStorage
+	buffer []byte
 
 	Q1 func(*paxi.Quorum) bool
 	Q2 func(*paxi.Quorum) bool
@@ -95,7 +93,7 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		N:                    n.GetConfig().N(),
 		Q1:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
 		Q2:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum2) },
-		//storage:         paxi.NewPersistentStorage(n.ID()),
+		buffer:               make([]byte, 16),
 	}
 	roles := strings.Split(cfg.Roles[n.ID()], ",")
 
@@ -214,13 +212,15 @@ func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
 
 func (p *OPaxos) persistHighestBallot(b paxi.Ballot) {
 	storage := p.GetPersistentStorage()
-	buff := make([]byte, 8)
-	binary.BigEndian.PutUint64(buff, uint64(b))
-	_, err := storage.Write(buff)
+	if storage == nil {
+		return
+	}
+	binary.BigEndian.PutUint64(p.buffer[:8], uint64(b))
+	_, err := storage.Write(p.buffer[:8])
 	if err != nil {
 		log.Errorf("failed to store max ballot: %v", err)
 	}
-	err = storage.Sync()
+	err = storage.Flush()
 	if err != nil {
 		log.Errorf("failed to sync storage: %v", err)
 	}
@@ -228,16 +228,18 @@ func (p *OPaxos) persistHighestBallot(b paxi.Ballot) {
 
 func (p *OPaxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
 	storage := p.GetPersistentStorage()
-	buff := make([]byte, 16)
-	binary.BigEndian.PutUint64(buff[:8], uint64(slot))
-	binary.BigEndian.PutUint64(buff[8:], uint64(b))
-	if _, err := storage.Write(buff); err != nil {
+	if storage == nil {
+		return
+	}
+	binary.BigEndian.PutUint64(p.buffer[:8], uint64(slot))
+	binary.BigEndian.PutUint64(p.buffer[8:16], uint64(b))
+	if _, err := storage.Write(p.buffer[:16]); err != nil {
 		log.Errorf("failed to store slot and max ballot: %v", err)
 	}
 	if _, err := storage.Write(val); err != nil {
 		log.Errorf("failed to store accepted value: %v", err)
 	}
-	if err := storage.Sync(); err != nil {
+	if err := storage.Flush(); err != nil {
 		log.Errorf("failed to sync storage: %v", err)
 	}
 }
