@@ -181,10 +181,7 @@ func (p *Paxos) P1a() {
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
 
-	//if err := p.storage.PersistBallot(p.ballot); err != nil {
-	//	log.Errorf("failed to persist max ballot %v", err)
-	//}
-
+	p.persistHighestBallot(p.ballot)
 	p.quorum.ACK(p.ID())
 
 	p.Broadcast(P1a{Ballot: p.ballot})
@@ -199,10 +196,7 @@ func (p *Paxos) P2a(r *paxi.ClientBytesCommand) {
 		quorum:  paxi.NewQuorum(),
 	}
 
-	//if err := p.storage.PersistValue(p.slot, p.log[p.slot].command.ToBytesCommand()); err != nil {
-	//	log.Errorf("failed to persist accepted value %v", err)
-	//}
-
+	p.persistAcceptedValue(p.slot, p.ballot, r.Data)
 	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
 		Ballot:  p.ballot,
@@ -219,10 +213,11 @@ func (p *Paxos) P2a(r *paxi.ClientBytesCommand) {
 
 // HandleP1a handles P1a message
 func (p *Paxos) HandleP1a(m P1a) {
-	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
+	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
 
 	// new leader
 	if m.Ballot > p.ballot {
+		p.persistHighestBallot(m.Ballot)
 		p.ballot = m.Ballot
 		p.active = false
 		// TODO use BackOff time or forward
@@ -327,22 +322,21 @@ func (p *Paxos) HandleP1b(m P1b) {
 
 // HandleP2a handles P2a message
 func (p *Paxos) HandleP2a(m P2a) {
-	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
+	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
 
 	if m.Ballot >= p.ballot {
-		//if m.Ballot != p.ballot {
-		//	if err := p.storage.PersistBallot(p.ballot); err != nil {
-		//		log.Errorf("failed to persist max ballot %v", err)
-		//	}
-		//}
-		//if err := p.storage.PersistValue(p.slot, m.Command.ToBytesCommand()); err != nil {
-		//	log.Errorf("failed to persist accepted value %v", err)
-		//}
+		if m.Ballot != p.ballot {
+			p.persistHighestBallot(m.Ballot)
+		}
+
 		p.ballot = m.Ballot
 		p.active = false
+
 		// update slot number
 		p.slot = paxi.Max(p.slot, m.Slot)
+
 		// update entry
+		p.persistAcceptedValue(m.Slot, m.Ballot, m.Command)
 		if e, exists := p.log[m.Slot]; exists {
 			if !e.commit && m.Ballot > e.ballot {
 				// different command and request is not nil
@@ -379,17 +373,17 @@ func (p *Paxos) HandleP2a(m P2a) {
 // HandleP2b handles P2b message
 func (p *Paxos) HandleP2b(m P2b) {
 	// old message
-	entry, exist := p.log[m.Slot]
-	if !exist || m.Ballot < entry.ballot || entry.commit {
+	e, exist := p.log[m.Slot]
+	if !exist || m.Ballot < e.ballot || e.commit {
 		return
 	}
 
-	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, p.ID())
-	// log.Infof("%d time until received by leader %v", m.Slot, time.Since(m.SendTime))
+	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, p.ID())
 
 	// reject message
 	// node update its ballot number and falls back to acceptor
 	if m.Ballot > p.ballot {
+		p.persistHighestBallot(m.Ballot)
 		p.ballot = m.Ballot
 		p.active = false
 	}
@@ -546,4 +540,34 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 
 	log.Debugf("cmd=%v, value=%x", cmd, value)
 	return reply
+}
+
+func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
+	storage := p.GetPersistentStorage()
+	buff := make([]byte, 8)
+	binary.BigEndian.PutUint64(buff, uint64(b))
+	_, err := storage.Write(buff)
+	if err != nil {
+		log.Errorf("failed to store max ballot: %v", err)
+	}
+	err = storage.Sync()
+	if err != nil {
+		log.Errorf("failed to sync storage: %v", err)
+	}
+}
+
+func (p *Paxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
+	storage := p.GetPersistentStorage()
+	buff := make([]byte, 16)
+	binary.BigEndian.PutUint64(buff[:8], uint64(slot))
+	binary.BigEndian.PutUint64(buff[8:], uint64(b))
+	if _, err := storage.Write(buff); err != nil {
+		log.Errorf("failed to store slot and max ballot: %v", err)
+	}
+	if _, err := storage.Write(val); err != nil {
+		log.Errorf("failed to store accepted value: %v", err)
+	}
+	if err := storage.Sync(); err != nil {
+		log.Errorf("failed to sync storage: %v", err)
+	}
 }

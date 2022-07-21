@@ -1,6 +1,7 @@
 package opaxos
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
@@ -210,3 +211,34 @@ func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
 	}
 	return nil
 }
+
+func (p *OPaxos) persistHighestBallot(b paxi.Ballot) {
+	storage := p.GetPersistentStorage()
+	buff := make([]byte, 8)
+	binary.BigEndian.PutUint64(buff, uint64(b))
+	_, err := storage.Write(buff)
+	if err != nil {
+		log.Errorf("failed to store max ballot: %v", err)
+	}
+	err = storage.Sync()
+	if err != nil {
+		log.Errorf("failed to sync storage: %v", err)
+	}
+}
+
+func (p *OPaxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
+	storage := p.GetPersistentStorage()
+	buff := make([]byte, 16)
+	binary.BigEndian.PutUint64(buff[:8], uint64(slot))
+	binary.BigEndian.PutUint64(buff[8:], uint64(b))
+	if _, err := storage.Write(buff); err != nil {
+		log.Errorf("failed to store slot and max ballot: %v", err)
+	}
+	if _, err := storage.Write(val); err != nil {
+		log.Errorf("failed to store accepted value: %v", err)
+	}
+	if err := storage.Sync(); err != nil {
+		log.Errorf("failed to sync storage: %v", err)
+	}
+}
+

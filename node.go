@@ -2,8 +2,10 @@ package paxi
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"reflect"
 	"runtime"
 	"sync"
@@ -25,6 +27,7 @@ type Node interface {
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
 	GetConfig() *Config
+	GetPersistentStorage() *os.File
 }
 
 // node implements Node interface
@@ -37,6 +40,7 @@ type node struct {
 	ProtocolMsgChan chan interface{}
 	handles         map[string]reflect.Value
 	server          *http.Server
+	storage         *os.File
 
 	sync.RWMutex
 	forwards map[string]*Request
@@ -44,7 +48,8 @@ type node struct {
 
 // NewNode creates a new Node object from configuration
 func NewNode(id ID) Node {
-	return &node{
+	var err error
+	n := &node{
 		id:              id,
 		Socket:          NewSocket(id, config.Addrs),
 		Database:        NewDatabase(),
@@ -52,7 +57,18 @@ func NewNode(id ID) Node {
 		ProtocolMsgChan: make(chan interface{}, config.ChanBufferSize),
 		handles:         make(map[string]reflect.Value),
 		forwards:        make(map[string]*Request),
+		storage: nil,
 	}
+
+	storageFile := config.StoragePath
+	if storageFile == "" {
+		storageFile = fmt.Sprintf("/tmp/paxi_storage_%s", id)
+	}
+	if n.storage, err = os.Create(storageFile); err != nil {
+		log.Fatal(err)
+	}
+
+	return n
 }
 
 func (n *node) ID() ID {
@@ -61,6 +77,10 @@ func (n *node) ID() ID {
 
 func (n *node) GetConfig() *Config {
 	return &config
+}
+
+func (n *node) GetPersistentStorage() *os.File {
+	return n.storage
 }
 
 func (n *node) Retry(r Request) {
@@ -135,17 +155,17 @@ func (n *node) handle() {
 		var msg interface{}
 
 		select {
-		case msg = <- n.ProtocolMsgChan:
+		case msg = <-n.ProtocolMsgChan:
 			break
-		case msg = <- n.ProtocolMsgChan:
+		case msg = <-n.ProtocolMsgChan:
 			break
-		case msg = <- n.ProtocolMsgChan:
+		case msg = <-n.ProtocolMsgChan:
 			break
-		case msg = <- n.ProtocolMsgChan:
+		case msg = <-n.ProtocolMsgChan:
 			break
-		case msg = <- n.ProtocolMsgChan:
+		case msg = <-n.ProtocolMsgChan:
 			break
-		case msg = <- n.MessageChan:
+		case msg = <-n.MessageChan:
 			break
 		}
 

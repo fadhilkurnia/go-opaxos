@@ -15,10 +15,7 @@ func (op *OPaxos) Prepare() {
 	op.ballot.Next(op.ID())
 	op.quorum.Reset()
 
-	//if err := op.storage.PersistBallot(op.ballot); err != nil {
-	//	log.Errorf("failed to persist max ballot %v", err)
-	//}
-
+	op.persistHighestBallot(op.ballot)
 	op.quorum.ACK(op.ID())
 
 	log.Debugf("broadcasting prepare message %s", op.ballot.String())
@@ -39,10 +36,7 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 
 	log.Debugf("get cmd for slot %d", op.slot)
 
-	//if err := op.storage.PersistValue(op.slot, op.log[op.slot].command); err != nil {
-	//	log.Errorf("failed to persist accepted value %v", err)
-	//}
-
+	op.persistAcceptedValue(op.slot, op.ballot, r.SSCommands[len(r.SSCommands)-1])
 	op.log[op.slot].quorum.ACK(op.ID())
 
 	// TODO: broadcast clear message to trusted acceptors, secret-shared message to untrusted acceptors
@@ -89,6 +83,7 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 
 	// yield to another proposer with higher ballot number
 	if m.Ballot > op.ballot {
+		op.persistHighestBallot(m.Ballot)
 		op.ballot = m.Ballot
 		op.IsLeader = false
 		op.onOffPendingCommands = nil

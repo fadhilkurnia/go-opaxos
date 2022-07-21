@@ -8,6 +8,7 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 	// handle if there is a new leader with higher ballot number
 	// promise not to accept value with lower ballot
 	if m.Ballot > op.ballot {
+		op.persistHighestBallot(m.Ballot)
 		op.ballot = m.Ballot
 		op.IsLeader = false
 		op.onOffPendingCommands = nil
@@ -40,24 +41,18 @@ func (op *OPaxos) HandleProposeRequest(m P2a) {
 	// TODO: handle if this is acceptor that also a proposer (clear command, instead of secret-shared command)
 
 	if m.Ballot >= op.ballot {
-		//if m.Ballot != op.ballot {
-		//	if err := op.storage.PersistBallot(op.ballot); err != nil {
-		//		log.Errorf("failed to persist max ballot %v", err)
-		//	}
-		//}
-		//if err := op.storage.PersistValue(op.slot, m.Command); err != nil {
-		//	log.Errorf("failed to persist accepted value %v", err)
-		//}
+		if m.Ballot != op.ballot {
+			op.persistHighestBallot(m.Ballot)
+		}
 
 		op.ballot = m.Ballot
 		op.IsLeader = false
-
-		// log.Infof("message slot=%v acked after %v\n", m.Slot, time.Since(m.SendTime))
 
 		// update slot number
 		op.slot = paxi.Max(op.slot, m.Slot)
 
 		// update entry
+		op.persistAcceptedValue(m.Slot, m.Ballot, m.Command)
 		bc := paxi.BytesCommand(m.Command) // secret-shared command
 		if e, exists := op.log[m.Slot]; exists {
 			// TODO: forward client request to the leader, now we just discard it
