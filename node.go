@@ -1,16 +1,16 @@
 package paxi
 
 import (
-	"bufio"
+	"encoding/binary"
 	"flag"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 	"reflect"
 	"runtime"
 	"sync"
 
 	"github.com/ailidani/paxi/log"
+	badger "github.com/dgraph-io/badger/v3"
 )
 
 var isPprof = flag.Bool("pprof", false, "activate pprof server")
@@ -27,7 +27,9 @@ type Node interface {
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
 	GetConfig() *Config
-	GetPersistentStorage() *bufio.Writer
+
+	PutMaxBallot(b Ballot)
+	PutAcceptedValue(slot int, b Ballot, val []byte)
 }
 
 // node implements Node interface
@@ -40,7 +42,8 @@ type node struct {
 	ProtocolMsgChan chan interface{}
 	handles         map[string]reflect.Value
 	server          *http.Server
-	storage         *bufio.Writer
+	storage         *badger.DB
+	buffer          []byte
 
 	sync.RWMutex
 	forwards map[string]*Request
@@ -57,16 +60,16 @@ func NewNode(id ID) Node {
 		handles:         make(map[string]reflect.Value),
 		forwards:        make(map[string]*Request),
 		storage:         nil,
+		buffer:          make([]byte, 16),
 	}
 
 	storageFile := config.StoragePath
 	if storageFile != "" {
-		var f *os.File
 		var err error
-		if f, err = os.Create(storageFile); err != nil {
+		n.storage, err = badger.Open(badger.DefaultOptions(storageFile))
+		if err != nil {
 			log.Fatal(err)
 		}
-		n.storage = bufio.NewWriter(f)
 	}
 
 	return n
@@ -80,8 +83,41 @@ func (n *node) GetConfig() *Config {
 	return &config
 }
 
-func (n *node) GetPersistentStorage() *bufio.Writer {
-	return n.storage
+func (n *node) PutMaxBallot(b Ballot) {
+	if n.storage == nil {
+		return
+	}
+
+	txn := n.storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(n.buffer[:8], uint64(b))
+	if err := txn.Set([]byte("b"), n.buffer[:8]); err != nil {
+		log.Errorf("failed to store max ballot %v", err)
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
+}
+
+func (n *node) PutAcceptedValue(slot int, b Ballot, val []byte) {
+	if n.storage == nil {
+		return
+	}
+
+	txn := n.storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(n.buffer[:8], uint64(slot))
+	binary.BigEndian.PutUint64(n.buffer[8:16], uint64(b))
+	if err := txn.Set(n.buffer[:16], val); err != nil {
+		log.Errorf("failed to store accepted value %v", err)
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
 }
 
 func (n *node) Retry(r Request) {
