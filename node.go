@@ -5,12 +5,13 @@ import (
 	"flag"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"reflect"
 	"runtime"
 	"sync"
 
 	"github.com/ailidani/paxi/log"
-	badger "github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v3"
 )
 
 var isPprof = flag.Bool("pprof", false, "activate pprof server")
@@ -66,7 +67,12 @@ func NewNode(id ID) Node {
 	storageFile := config.StoragePath
 	if storageFile != "" {
 		var err error
-		n.storage, err = badger.Open(badger.DefaultOptions(storageFile))
+		if err = os.RemoveAll(storageFile); err != nil {
+			log.Errorf("failed to cleanup place for storage")
+		}
+		opts := badger.DefaultOptions(storageFile)
+		opts.Logger = nil
+		n.storage, err = badger.Open(opts)
 		if err != nil {
 			log.Fatal(err)
 		}
