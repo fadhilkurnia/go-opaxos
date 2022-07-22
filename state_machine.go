@@ -11,4 +11,4 @@ type State interface {
 	Hash() uint64
 }
 
-const MaxBatchSize = 10_000
+const MaxBatchSize = 5_000
