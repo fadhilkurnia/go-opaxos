@@ -41,12 +41,14 @@ type P1b struct {
 
 // CommandShare combines each secret-shared command with its ballot number
 type CommandShare struct {
-	Ballot    paxi.Ballot // the accepted ballot number
-	OriBallot paxi.Ballot // the original ballot-number
-	Command   []byte      // the secret-share of value being proposed
-	ID        paxi.ID
-	History   []string
-	ValID     string
+	Ballot      paxi.Ballot   // the accepted ballot number
+	OriBallot   paxi.Ballot   // the original ballot-number
+	SharesBatch []SecretShare // the secret-share of value being proposed
+	ID          paxi.ID
+
+	// TODO: remove this, now they are used for debugging
+	History []string
+	ValID   string
 }
 
 func (m P1b) String() string {
@@ -56,14 +58,14 @@ func (m P1b) String() string {
 // P2a propose message from proposer to acceptor in Phase 2
 // accept message.
 type P2a struct {
-	Ballot    paxi.Ballot // the proposer's ballot-number
-	Slot      int         // the slot to be filled
-	Command   []byte      // the proposed secret-shares
-	OriBallot paxi.Ballot // the value's original ballot
+	Ballot      paxi.Ballot   // the proposer's ballot-number
+	Slot        int           // the slot to be filled
+	SharesBatch []SecretShare // a batch of secret-shares of command
+	OriBallot   paxi.Ballot   // the value's original ballot
 }
 
 func (m P2a) String() string {
-	return fmt.Sprintf("P2a {b=%v s=%d cmd=%x}", m.Ballot, m.Slot, m.Command)
+	return fmt.Sprintf("P2a {b=%v s=%d cmd=%x}", m.Ballot, m.Slot, m.SharesBatch)
 }
 
 // P2b response of propose message, sent from acceptor to proposer
@@ -80,10 +82,13 @@ func (m P2b) String() string {
 	return fmt.Sprintf("P2b {b=%v id=%s s=%d}", m.Ballot, m.ID, m.Slot)
 }
 
-// P3 message issued by proposer/leader to persist a previously accepted value
+// P3 message issued by proposer to commit
 type P3 struct {
-	Ballot paxi.Ballot // the proposer's ballot-number
-	Slot   int
+	Ballot       paxi.Ballot         // the proposer's ballot-number
+	Slot         int                 // the slot to be committed
+	SharesBatch  []SecretShare       // a batch of secret-shares of command
+	OriBallot    paxi.Ballot         // the value's original ballot
+	CommandBatch []paxi.BytesCommand // a batch of clear command for fellow trusted proposer
 }
 
 func (m P3) String() string {
@@ -96,8 +101,10 @@ type SSBytesRequest struct {
 	ssCommands [][]byte
 }
 
+type SecretShare []byte
+
 type SecretSharedCommand struct {
 	*paxi.ClientBytesCommand               // pointer to the client's command
 	SSTime                   time.Duration // time taken to secret-share the command
-	SSCommands               [][]byte      // the secret-shared commands
+	Shares                   []SecretShare // the secret-shares of the command
 }

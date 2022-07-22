@@ -1,8 +1,8 @@
 package paxi
 
 import (
-	"encoding/binary"
 	"flag"
+	"fmt"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -28,9 +28,7 @@ type Node interface {
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
 	GetConfig() *Config
-
-	PutMaxBallot(b Ballot)
-	PutAcceptedValue(slot int, b Ballot, val []byte)
+	GetStorage() *badger.DB
 }
 
 // node implements Node interface
@@ -64,9 +62,11 @@ func NewNode(id ID) Node {
 		buffer:          make([]byte, 16),
 	}
 
+	// preparing storage for persistent storage
 	storageFile := config.StoragePath
 	if storageFile != "" {
 		var err error
+		storageFile = fmt.Sprintf("%s_%s", storageFile, id)
 		if err = os.RemoveAll(storageFile); err != nil {
 			log.Errorf("failed to cleanup place for storage")
 		}
@@ -89,41 +89,8 @@ func (n *node) GetConfig() *Config {
 	return &config
 }
 
-func (n *node) PutMaxBallot(b Ballot) {
-	if n.storage == nil {
-		return
-	}
-
-	txn := n.storage.NewTransaction(true)
-	defer txn.Discard()
-
-	binary.BigEndian.PutUint64(n.buffer[:8], uint64(b))
-	if err := txn.Set([]byte("b"), n.buffer[:8]); err != nil {
-		log.Errorf("failed to store max ballot %v", err)
-	}
-
-	if err := txn.Commit(); err != nil {
-		log.Errorf("failed to sync storage", err)
-	}
-}
-
-func (n *node) PutAcceptedValue(slot int, b Ballot, val []byte) {
-	if n.storage == nil {
-		return
-	}
-
-	txn := n.storage.NewTransaction(true)
-	defer txn.Discard()
-
-	binary.BigEndian.PutUint64(n.buffer[:8], uint64(slot))
-	binary.BigEndian.PutUint64(n.buffer[8:16], uint64(b))
-	if err := txn.Set(n.buffer[:16], val); err != nil {
-		log.Errorf("failed to store accepted value %v", err)
-	}
-
-	if err := txn.Commit(); err != nil {
-		log.Errorf("failed to sync storage", err)
-	}
+func (n *node) GetStorage() *badger.DB {
+	return n.storage
 }
 
 func (n *node) Retry(r Request) {
@@ -186,6 +153,10 @@ func (n *node) recv() {
 			continue
 		}
 
+		if len(n.ProtocolMsgChan) == cap(n.ProtocolMsgChan) {
+			log.Warningf("Channel for protocol messages is full (len=%d)", len(n.ProtocolMsgChan))
+		}
+
 		// other messages are handled as protocol message
 		n.ProtocolMsgChan <- m
 	}
@@ -197,6 +168,7 @@ func (n *node) handle() {
 	for {
 		var msg interface{}
 
+		// protocol messages are prioritized more than client's message
 		select {
 		case msg = <-n.ProtocolMsgChan:
 			break

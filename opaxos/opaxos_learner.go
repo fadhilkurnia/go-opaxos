@@ -10,13 +10,22 @@ import (
 func (op *OPaxos) HandleCommitRequest(m P3) {
 	op.slot = paxi.Max(op.slot, m.Slot)
 
-	// TODO: tell the leader if the slot is empty
 	e, exist := op.log[m.Slot]
-	if !exist {
-		op.log[m.Slot] = &entry{}
-		e = op.log[m.Slot]
+	if exist {
+		e.sharesBatch = m.SharesBatch
+		e.commit = true
+	} else {
+		op.log[m.Slot] = &entry{
+			ballot:      m.Ballot,
+			oriBallot:   m.OriBallot,
+			sharesBatch: m.SharesBatch,
+			commit:      true,
+		}
 	}
-	e.commit = true
+
+	if len(m.CommandBatch) > 0 {
+		op.log[m.Slot].commands = m.CommandBatch
+	}
 
 	op.exec()
 }
@@ -28,22 +37,18 @@ func (op *OPaxos) exec() {
 			break
 		}
 
-		// only learner that also a proposer that can execute the command
-		// since it has clear command, not the secret-shared command
 		var cmdReply paxi.CommandReply
 
-		if op.IsLearner && op.IsProposer {
-			cmdReply = op.execCommands(e.command.BytesCommand, op.execute, e)
-
-			if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-				err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
-				if err != nil {
-					log.Errorf("failed to send CommandReply %s", err)
+		if len(e.commands) > 0 {
+			for i, cmd := range e.commands {
+				cmdReply = op.execCommands(&cmd, op.execute, e, i)
+				if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
+					err := e.commandsHandler[i].SendBytesReply(cmdReply.Marshal())
+					if err != nil {
+						log.Errorf("failed to send CommandReply: %v", err)
+					}
+					e.commandsHandler[i] = nil
 				}
-				e.command.RPCMessage = nil
-				//log.Infof("slot=%d time from proposed until executed %v", op.execute, time.Since(e.timestamp))
-			} else {
-				log.Errorf("missing RPCMessage! $v", e.command.Data)
 			}
 		}
 
@@ -55,7 +60,7 @@ func (op *OPaxos) exec() {
 
 // execCommands parse cmd since it can be any type of command
 // depends on the client type
-func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
+func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, cid int) paxi.CommandReply {
 	var cmd paxi.Command
 
 	// by default we do not send all the data, to make the response compact
@@ -87,7 +92,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) p
 	}
 
 	if *paxi.GatherSecretShareTime {
-		reply.EncodeTime = e.ssTime
+		reply.EncodeTime = e.ssTime[cid]
 	}
 
 	value := op.Execute(cmd)

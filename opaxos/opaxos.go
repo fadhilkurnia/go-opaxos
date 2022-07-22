@@ -1,6 +1,7 @@
 package opaxos
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
@@ -11,14 +12,16 @@ import (
 
 // entry in the log
 type entry struct {
-	ballot    paxi.Ballot              // the accepted ballot number
-	oriBallot paxi.Ballot              // TODO: oriBallot is the original ballot of the secret value
-	command   *paxi.ClientBytesCommand // clear or secret shared command in []bytes, with reply writer
-	commit    bool                     // commit indicates whether this entry is already committed or not
-	quorum    *paxi.Quorum             // phase-2 quorum
-	timestamp time.Time                // timestamp when the command in this entry is proposed
-	ssTime    time.Duration            // time needed for secret-sharing process
+	ballot          paxi.Ballot         // the accepted ballot number
+	oriBallot       paxi.Ballot         // oriBallot is the original ballot of the secret value
+	commands        []paxi.BytesCommand // a batch of clear commands
+	commandsHandler []*paxi.RPCMessage  // corresponding handler for each command in commands
+	sharesBatch     []SecretShare       // a batch secret-shares of each command in commands, one share per command
+	commit          bool                // commit indicates whether this entry is already committed or not
+	quorum          *paxi.Quorum        // phase-2 quorum
+	ssTime          []time.Duration     // time needed for secret-sharing process for each command in commands
 
+	// used for recovery
 	commandShares []*CommandShare // collection of command from multiple acceptors, with the same slot number
 }
 
@@ -27,13 +30,13 @@ type OPaxos struct {
 	paxi.Node
 
 	config     *Config      // OPaxos configuration
-	algorithm  string       // secret-sharing algorithm
-	K          int          // the minimum number of secret shares to make it reconstructive
+	algorithm  string       // secret-sharing algorithm: shamir or ssms
+	T          int          // the minimum number of secret shares to make it reconstructive
 	N          int          // the number of nodes
-	IsProposer bool         // IsProposer indicates whether this replica has proposer role or not
-	IsAcceptor bool         // IsAcceptor indicates whether this replica has acceptor role or not
-	IsLearner  bool         // IsLearner indicates whether this replica has learner role or not
-	IsLeader   bool         // IsLeader indicates whether this instance perceives itself as a leader or not
+	isProposer bool         // isProposer indicates whether this replica has proposer role or not
+	isAcceptor bool         // isAcceptor indicates whether this replica has acceptor role or not
+	isLearner  bool         // IsLearner indicates whether this replica has learner role or not
+	isLeader   bool         // IsLeader indicates whether this instance perceives itself as a leader or not
 	quorum     *paxi.Quorum // quorum store all ack'd responses for phase-1 / leader election
 
 	log     map[int]*entry // log ordered by slot
@@ -49,7 +52,7 @@ type OPaxos struct {
 	pendingCommands      chan *SecretSharedCommand     // pending commands that will be proposed
 	onOffPendingCommands chan *SecretSharedCommand     // non nil pointer to pendingCommands after get response for phase 1
 
-	buffer []byte
+	buffer []byte // buffer used to persist ballot and accepted ballot
 
 	Q1 func(*paxi.Quorum) bool
 	Q2 func(*paxi.Quorum) bool
@@ -88,11 +91,11 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		pendingCommands:      make(chan *SecretSharedCommand, cfg.ChanBufferSize),
 		onOffPendingCommands: nil,
 		numSSWorkers:         runtime.NumCPU(),
-		K:                    cfg.Protocol.Threshold,
+		T:                    cfg.Protocol.Threshold,
 		N:                    n.GetConfig().N(),
 		Q1:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum1) },
 		Q2:                   func(q *paxi.Quorum) bool { return q.CardinalityBasedQuorum(cfg.Protocol.Quorum2) },
-		buffer:               make([]byte, 16),
+		buffer:               make([]byte, 32),
 	}
 	roles := strings.Split(cfg.Roles[n.ID()], ",")
 
@@ -103,14 +106,14 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 	// parse roles
 	for _, r := range roles {
 		if r == "proposer" {
-			op.IsProposer = true
+			op.isProposer = true
 			op.initDefaultSecretSharingWorker()
 		}
 		if r == "acceptor" {
-			op.IsAcceptor = true
+			op.isAcceptor = true
 		}
 		if r == "learner" {
-			op.IsLearner = true
+			op.isLearner = true
 		}
 	}
 
@@ -118,8 +121,8 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 }
 
 func (op *OPaxos) initAndRunSecretSharingWorker() {
-	numShares := op.N - 1
-	numThreshold := op.K
+	numShares := op.N
+	numThreshold := op.T
 
 	if op.config.Thrifty {
 		numShares = op.config.Protocol.Quorum2 - 1
@@ -130,8 +133,8 @@ func (op *OPaxos) initAndRunSecretSharingWorker() {
 }
 
 func (op *OPaxos) initDefaultSecretSharingWorker() {
-	numShares := op.N - 1
-	numThreshold := op.K
+	numShares := op.N
+	numThreshold := op.T
 
 	if op.config.Thrifty {
 		numShares = op.config.Protocol.Quorum2 - 1
@@ -148,7 +151,7 @@ func (op *OPaxos) run() {
 		select {
 		case rCmd := <-op.rawCommands:
 			// start phase-1 if this proposer has not started it previously
-			if !op.IsLeader && op.ballot.ID() != op.ID() {
+			if !op.isLeader && op.ballot.ID() != op.ID() {
 				op.Prepare()
 			}
 
@@ -210,10 +213,44 @@ func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
 }
 
 func (op *OPaxos) persistHighestBallot(b paxi.Ballot) {
-	op.PutMaxBallot(b)
+	storage := op.GetStorage()
+	if storage == nil {
+		return
+	}
+
+	txn := storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(op.buffer[:8], uint64(b))
+	if err := txn.Set([]byte("b"), op.buffer[:8]); err != nil {
+		log.Errorf("failed to store max ballot %v", err)
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
 }
 
-func (op *OPaxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
-	op.PutAcceptedValue(slot, b, val)
-}
+func (op *OPaxos) persistAcceptedShares(slot int, b paxi.Ballot, bori paxi.Ballot, shares []SecretShare) {
+	storage := op.GetStorage()
+	if storage == nil {
+		return
+	}
 
+	txn := storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(op.buffer[:8], uint64(slot))
+	binary.BigEndian.PutUint64(op.buffer[8:16], uint64(b))
+	binary.BigEndian.PutUint64(op.buffer[16:24], uint64(bori))
+	for i, val := range shares {
+		binary.BigEndian.PutUint16(op.buffer[24:26], uint16(i))
+		if err := txn.Set(op.buffer[:26], val); err != nil {
+			log.Errorf("failed to store accepted value (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+		}
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
+}

@@ -20,7 +20,7 @@ type entry struct {
 	oriBallot paxi.Ballot                 // the original ballot of the accepted value
 	commit    bool                        // commit indicates whether this entry is already committed or not
 	quorum    *paxi.Quorum                // phase-2 quorum
-	shares    []*opaxos.CommandShare      // shares contain secret-shares for recovery purposes
+	shares    []*CommandShare             // shares contain secret-shares for recovery purposes
 	History   []string
 	valID     string
 }
@@ -127,7 +127,7 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 		ballot:    fop.ballot,
 		isFast:    true,
 		command:   cmd,
-		ssVal:     cmd.SSCommands[len(cmd.SSCommands)-1],
+		ssVal:     cmd.Shares[len(cmd.Shares)-1],
 		oriBallot: fop.ballot,
 		quorum:    paxi.NewQuorum(),
 		shares:    nil,
@@ -148,13 +148,13 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 	fop.log[fop.slot].quorum.ACK(fop.ID())
 
 	// prepare the fast-proposal
-	proposals := make([]interface{}, len(cmd.SSCommands)-1)
-	for i := 0; i < len(cmd.SSCommands)-1; i++ {
+	proposals := make([]interface{}, len(cmd.Shares)-1)
+	for i := 0; i < len(cmd.Shares)-1; i++ {
 		proposals[i] = P2a{
 			Fast:      true,
 			Ballot:    fop.ballot,
 			Slot:      fop.slot,
-			Command:   cmd.SSCommands[i],
+			Command:   cmd.Shares[i],
 			OriBallot: fop.ballot,
 			ValID:     fop.log[fop.slot].valID,
 		}
@@ -222,7 +222,7 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 		//	// e.command.BytesCommand = &(bc) // TODO: nullify the command
 		//}
 
-		e.ballot = m.Ballot       // update the accepted ballot number
+		e.ballot = m.Ballot // update the accepted ballot number
 		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal w with b=%s ob=%s vid=%s ssval=%x",
 			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, m.Command))
 		if e.oriBallot != m.OriBallot {
@@ -244,8 +244,8 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 					BytesCommand: nil,
 					RPCMessage:   nil,
 				},
-				SSTime:     0,
-				SSCommands: nil,
+				SSTime: 0,
+				Shares: nil,
 			},
 			ssVal:     m.Command,
 			oriBallot: m.OriBallot,
@@ -395,7 +395,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 
 		// store the value with the highest accepted ballot
 		// this will be used for recovery
-		otherShare := &opaxos.CommandShare{
+		otherShare := &CommandShare{
 			Ballot:    m.Ballot,
 			OriBallot: m.OriBallot,
 			Command:   m.Command,
@@ -505,13 +505,18 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 						BytesCommand: nil,
 						RPCMessage:   nil,
 					},
-					SSTime:     0,
-					SSCommands: nil,
+					SSTime: 0,
+					Shares: nil,
 				}
 			}
 
+			newSharesStruct := make([]opaxos.SecretShare, len(newShares))
+			for j := 0; j < len(newShares); j++ {
+				newSharesStruct[j] = newShares[j]
+			}
+
 			e.command.SSTime = dur
-			e.command.SSCommands = newShares
+			e.command.Shares = newSharesStruct
 			bc := paxi.BytesCommand(val)
 			e.command.BytesCommand = &bc // replace the held command (secret value)
 			e.ssVal = newShares[len(newShares)-1]
@@ -555,13 +560,13 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 
 		// prepare the classic proposal
 		log.Debugf("preparing classic proposal slot=%d b=%s ob=%s", m.Slot, fop.ballot, e.oriBallot)
-		proposals := make([]interface{}, len(e.command.SSCommands)-1)
-		for j := 0; j < len(e.command.SSCommands)-1; j++ {
+		proposals := make([]interface{}, len(e.command.Shares)-1)
+		for j := 0; j < len(e.command.Shares)-1; j++ {
 			proposals[j] = P2a{
 				Fast:      false,
 				Ballot:    fop.ballot,
 				Slot:      m.Slot,
-				Command:   e.command.SSCommands[j],
+				Command:   e.command.Shares[j],
 				OriBallot: e.oriBallot,
 				ValID:     e.valID,
 			}

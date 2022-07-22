@@ -1,7 +1,6 @@
 package paxos
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/ailidani/paxi"
@@ -11,10 +10,11 @@ import (
 
 // entry in log
 type entry struct {
-	ballot  paxi.Ballot
-	command *paxi.ClientBytesCommand
-	commit  bool
-	quorum  *paxi.Quorum
+	ballot          paxi.Ballot         // ballot for the value
+	commands        []paxi.BytesCommand // a batch of commands (values)
+	commandsHandler []*paxi.RPCMessage  // corresponding handler for the commands, used to reply to client
+	commit          bool                // commit is true if the value is final
+	quorum          *paxi.Quorum        // quorum for phase 2
 }
 
 // Paxos instance
@@ -36,11 +36,9 @@ type Paxos struct {
 	pendingCommands      chan *paxi.ClientBytesCommand // pending commands ready to be proposed
 	onOffPendingCommands chan *paxi.ClientBytesCommand // non nil pointer to pendingCommands after get response for phase 1
 
-	Q1              func(*paxi.Quorum) bool
-	Q2              func(*paxi.Quorum) bool
-	ReplyWhenCommit bool
-
-	buffer []byte
+	Q1     func(*paxi.Quorum) bool
+	Q2     func(*paxi.Quorum) bool
+	buffer []byte // buffer used to persist ballot and accepted ballot
 }
 
 // NewPaxos creates new paxos instance
@@ -56,8 +54,7 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		onOffPendingCommands: nil,
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
-		ReplyWhenCommit:      false,
-		buffer:               make([]byte, 16),
+		buffer:               make([]byte, 24),
 	}
 
 	for _, opt := range options {
@@ -81,11 +78,11 @@ func (p *Paxos) run() {
 			// the commands will be proposed after this node
 			// successfully run phase-1
 			// (onOffPendingCommands will point to pendingCommands)
-			p.pendingCommands <- cmd
+			p.nonBlockingEnqueuePendingCommand(cmd)
 			numRawCmd := len(p.rawCommands)
 			for numRawCmd > 0 {
 				cmd = <-p.rawCommands
-				p.pendingCommands <- cmd
+				p.nonBlockingEnqueuePendingCommand(cmd)
 				numRawCmd--
 			}
 			break
@@ -112,6 +109,22 @@ func (p *Paxos) run() {
 	}
 
 	panic(fmt.Sprintf("paxos exited its main loop: %v", err))
+}
+
+func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientBytesCommand) {
+	isChannelFull := false
+	if len(p.pendingCommands) == cap(p.pendingCommands) {
+		log.Warningf("Channel for pending commands is full (len=%d)", len(p.pendingCommands))
+		isChannelFull = true
+	}
+
+	if !isChannelFull {
+		p.pendingCommands <- cmd
+	} else {
+		go func() {
+			p.pendingCommands <- cmd
+		}()
+	}
 }
 
 func (p *Paxos) handleProtocolMessages(pmsg interface{}) {
@@ -192,19 +205,37 @@ func (p *Paxos) P1a() {
 
 // P2a starts phase 2 accept
 func (p *Paxos) P2a(r *paxi.ClientBytesCommand) {
+	// prepare batch of commands to be proposed
+	batchSize := len(p.onOffPendingCommands) + 1
+	if batchSize > paxi.MaxBatchSize {
+		batchSize = paxi.MaxBatchSize
+	}
+	commands := make([]paxi.BytesCommand, batchSize)
+	commandsHandler := make([]*paxi.RPCMessage, batchSize)
+	commands[0] = *r.BytesCommand
+	commandsHandler[0] = r.RPCMessage
+	for i := 1; i < batchSize; i++ {
+		cmd := <-p.onOffPendingCommands
+		commands[i] = *cmd.BytesCommand
+		commandsHandler[i] = cmd.RPCMessage
+	}
+	log.Debugf("batching %d commands", batchSize)
+
+	// prepare the entry
 	p.slot++
 	p.log[p.slot] = &entry{
-		ballot:  p.ballot,
-		command: r,
-		quorum:  paxi.NewQuorum(),
+		ballot:          p.ballot,
+		commands:        commands,
+		commandsHandler: commandsHandler,
+		quorum:          paxi.NewQuorum(),
 	}
 
-	p.persistAcceptedValue(p.slot, p.ballot, r.Data)
+	p.persistAcceptedValues(p.slot, p.ballot, commands)
 	p.log[p.slot].quorum.ACK(p.ID())
 	m := P2a{
-		Ballot:  p.ballot,
-		Slot:    p.slot,
-		Command: r.Data,
+		Ballot:   p.ballot,
+		Slot:     p.slot,
+		Commands: commands,
 	}
 
 	if paxi.GetConfig().Thrifty {
@@ -216,27 +247,19 @@ func (p *Paxos) P2a(r *paxi.ClientBytesCommand) {
 
 // HandleP1a handles P1a message
 func (p *Paxos) HandleP1a(m P1a) {
-	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
-
 	// new leader
 	if m.Ballot > p.ballot {
 		p.persistHighestBallot(m.Ballot)
 		p.ballot = m.Ballot
 		p.active = false
-		// TODO use BackOff time or forward
-		// forward pending requests to new leader
-		//p.forward()
-		// if len(p.requests) > 0 {
-		// 	defer p.P1a()
-		// }
 	}
 
-	l := make(map[int]CommandBallot)
+	l := make(map[int]CommandsBallot)
 	for s := p.execute; s <= p.slot; s++ {
 		if p.log[s] == nil || p.log[s].commit {
 			continue
 		}
-		l[s] = CommandBallot{p.log[s].command.Data, p.log[s].ballot}
+		l[s] = CommandsBallot{p.log[s].commands, p.log[s].ballot}
 	}
 
 	p.Send(m.Ballot.ID(), P1b{
@@ -246,24 +269,21 @@ func (p *Paxos) HandleP1a(m P1a) {
 	})
 }
 
-func (p *Paxos) update(scb map[int]CommandBallot) {
+func (p *Paxos) update(scb map[int]CommandsBallot) {
 	for s, cb := range scb {
 		p.slot = paxi.Max(p.slot, s)
 		if e, exists := p.log[s]; exists {
 			if !e.commit && cb.Ballot > e.ballot {
 				e.ballot = cb.Ballot
-				e.command.Data = cb.Command
-				bc := paxi.BytesCommand(cb.Command)
-				e.command.BytesCommand = &bc
+				e.commands = cb.Commands
+				e.commandsHandler = nil
 			}
 		} else {
-			bc := paxi.BytesCommand(cb.Command)
 			p.log[s] = &entry{
-				ballot: cb.Ballot,
-				command: &paxi.ClientBytesCommand{
-					BytesCommand: &bc,
-				},
-				commit: false,
+				ballot:          cb.Ballot,
+				commands:        cb.Commands,
+				commandsHandler: nil,
+				commit:          false,
 			}
 		}
 	}
@@ -284,9 +304,6 @@ func (p *Paxos) HandleP1b(m P1b) {
 		p.ballot = m.Ballot
 		p.active = false
 		p.onOffPendingCommands = nil
-		// forward pending requests to new leader
-		// p.forward()
-		// p.P1a()
 	}
 
 	// ack message
@@ -297,7 +314,6 @@ func (p *Paxos) HandleP1b(m P1b) {
 
 			// propose any uncommitted entries
 			for i := p.execute; i <= p.slot; i++ {
-				// TODO nil gap?
 				if p.log[i] == nil || p.log[i].commit {
 					continue
 				}
@@ -305,19 +321,13 @@ func (p *Paxos) HandleP1b(m P1b) {
 				p.log[i].quorum = paxi.NewQuorum()
 				p.log[i].quorum.ACK(p.ID())
 				p.Broadcast(P2a{
-					Ballot:  p.ballot,
-					Slot:    i,
-					Command: p.log[i].command.Data,
+					Ballot:   p.ballot,
+					Slot:     i,
+					Commands: p.log[i].commands,
 				})
 			}
 
 			// propose pending commands
-			numPendingRequests := len(p.pendingCommands)
-			for i := 0; i < numPendingRequests; i++ {
-				pCmd := <-p.pendingCommands
-				p.P2a(pCmd)
-			}
-
 			p.onOffPendingCommands = p.pendingCommands
 		}
 	}
@@ -325,8 +335,6 @@ func (p *Paxos) HandleP1b(m P1b) {
 
 // HandleP2a handles P2a message
 func (p *Paxos) HandleP2a(m P2a) {
-	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
-
 	if m.Ballot >= p.ballot {
 		if m.Ballot != p.ballot {
 			p.persistHighestBallot(m.Ballot)
@@ -339,29 +347,19 @@ func (p *Paxos) HandleP2a(m P2a) {
 		p.slot = paxi.Max(p.slot, m.Slot)
 
 		// update entry
-		p.persistAcceptedValue(m.Slot, m.Ballot, m.Command)
+		p.persistAcceptedValues(m.Slot, m.Ballot, m.Commands)
 		if e, exists := p.log[m.Slot]; exists {
 			if !e.commit && m.Ballot > e.ballot {
-				// different command and request is not nil
-				if !bytes.Equal(e.command.Data, m.Command) && e.command.RPCMessage != nil {
-					//p.Forward(m.Ballot.ID(), *e.request)
-					// p.Retry(*e.request)
-					e.command.RPCMessage = nil
-				}
-				e.command.Data = m.Command
-				bc := paxi.BytesCommand(m.Command)
-				e.command.BytesCommand = &(bc)
+				e.commands = m.Commands
 				e.ballot = m.Ballot
+				e.commandsHandler = nil
 			}
 		} else {
-			bc := paxi.BytesCommand(m.Command)
 			p.log[m.Slot] = &entry{
-				ballot: m.Ballot,
-				command: &paxi.ClientBytesCommand{
-					BytesCommand: &bc,
-					RPCMessage:   nil,
-				},
-				commit: false,
+				ballot:          m.Ballot,
+				commands:        m.Commands,
+				commandsHandler: nil,
+				commit:          false,
 			}
 		}
 	}
@@ -399,20 +397,11 @@ func (p *Paxos) HandleP2b(m P2b) {
 		if p.Q2(p.log[m.Slot].quorum) {
 			p.log[m.Slot].commit = true
 			p.Broadcast(P3{
-				Ballot: m.Ballot,
-				Slot:   m.Slot,
-				//Command: p.log[m.Slot].command.Data,
+				Ballot:   m.Ballot,
+				Slot:     m.Slot,
+				Commands: p.log[m.Slot].commands,
 			})
 
-			//if p.ReplyWhenCommit {
-			//	r := p.log[m.Slot].request
-			//	r.Reply(paxi.Reply{
-			//		Command:   r.Command,
-			//		Timestamp: r.Timestamp,
-			//	})
-			//} else {
-			//	p.exec()
-			//}
 			p.exec()
 		}
 	}
@@ -420,39 +409,21 @@ func (p *Paxos) HandleP2b(m P2b) {
 
 // HandleP3 handles phase 3 commit message
 func (p *Paxos) HandleP3(m P3) {
-	// log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
-
 	p.slot = paxi.Max(p.slot, m.Slot)
 
 	e, exist := p.log[m.Slot]
-	//if exist {
-	//	if !e.command.Equal(m.Command) && e.request != nil {
-	//		// p.Retry(*e.request)
-	//		p.Forward(m.Ballot.ID(), *e.request)
-	//		e.request = nil
-	//	}
-	//} else {
-	//	p.log[m.Slot] = &entry{}
-	//	e = p.log[m.Slot]
-	//}
-	if !exist {
-		p.log[m.Slot] = &entry{}
-		e = p.log[m.Slot]
+	if exist {
+		e.commands = m.Commands
+		e.commit = true
+	} else {
+		p.log[m.Slot] = &entry{
+			ballot:          m.Ballot,
+			commands:        m.Commands,
+			commandsHandler: nil,
+			commit:          true,
+		}
 	}
 
-	//e.command = m.Command
-	e.commit = true
-
-	//if p.ReplyWhenCommit {
-	//	if e.request != nil {
-	//		e.request.Reply(paxi.Reply{
-	//			Command:   e.request.Command,
-	//			Timestamp: e.request.Timestamp,
-	//		})
-	//	}
-	//} else {
-	//	p.exec()
-	//}
 	p.exec()
 }
 
@@ -462,46 +433,37 @@ func (p *Paxos) exec() {
 		if !ok || !e.commit {
 			break
 		}
-		// log.Debugf("Replica %s execute [s=%d, cmd=%v]", p.ID(), p.execute, e.command)
+		log.Debugf("Replica %s execute [s=%d, cmds=%v]", p.ID(), p.execute, e.commands)
 
-		cmdReply := p.execCommands(e.command.BytesCommand, p.execute, e)
+		for i, cmd := range e.commands {
+			cmdReply := p.execCommands(&cmd, p.execute, e)
+			if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
+				err := e.commandsHandler[i].SendBytesReply(cmdReply.Marshal())
+				if err != nil {
+					log.Errorf("failed to send CommandReply: %v", err)
+				}
+				e.commandsHandler[i] = nil
 
-		//if err := p.storage.ClearValue(p.execute); err != nil {
-		//	log.Errorf("failed to clear executed message %v", err)
-		//}
-		if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-			//reply := paxi.Reply{
-			//	Command:    e.command,
-			//	Value:      value,
-			//	Properties: make(map[string]string),
-			//}
-			//reply.Properties[HTTPHeaderSlot] = strconv.Itoa(p.execute)
-			//reply.Properties[HTTPHeaderBallot] = e.ballot.String()
-			//reply.Properties[HTTPHeaderExecute] = strconv.Itoa(p.execute)
-			//reply.Properties[HTTPHeaderEncodingTime] = "0"
-			//e.request.Reply(reply)
-			//e.request = nil
-
-			err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
-			if err != nil {
-				log.Errorf("failed to send CommandReply %s", err)
+				// Old code for handling http request (deprecated)
+				//reply := paxi.Reply{
+				//	Command:    e.command,
+				//	Value:      value,
+				//	Properties: make(map[string]string),
+				//}
+				//reply.Properties[HTTPHeaderSlot] = strconv.Itoa(p.execute)
+				//reply.Properties[HTTPHeaderBallot] = e.ballot.String()
+				//reply.Properties[HTTPHeaderExecute] = strconv.Itoa(p.execute)
+				//reply.Properties[HTTPHeaderEncodingTime] = "0"
+				//e.request.Reply(reply)
+				//e.request = nil
 			}
-			e.command.RPCMessage = nil
-
 		}
 
-		// TODO clean up the log periodically
+		// TODO: clean up the log periodically
 		delete(p.log, p.execute)
 		p.execute++
 	}
 }
-
-//func (p *Paxos) forward() {
-//	for _, m := range p.requests {
-//		p.Forward(p.ballot.ID(), *m)
-//	}
-//	p.requests = make([]*paxi.Request, 0)
-//}
 
 func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
 	var cmd paxi.Command
@@ -546,9 +508,43 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 }
 
 func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
-	p.PutMaxBallot(b)
+	storage := p.GetStorage()
+	if storage == nil {
+		return
+	}
+
+	txn := storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(p.buffer[:8], uint64(b))
+	if err := txn.Set([]byte("b"), p.buffer[:8]); err != nil {
+		log.Errorf("failed to store max ballot %v", err)
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
 }
 
-func (p *Paxos) persistAcceptedValue(slot int, b paxi.Ballot, val []byte) {
-	p.PutAcceptedValue(slot, b, val)
+func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.BytesCommand) {
+	storage := p.GetStorage()
+	if storage == nil {
+		return
+	}
+
+	txn := storage.NewTransaction(true)
+	defer txn.Discard()
+
+	binary.BigEndian.PutUint64(p.buffer[:8], uint64(slot))
+	binary.BigEndian.PutUint64(p.buffer[8:16], uint64(b))
+	for i, val := range values {
+		binary.BigEndian.PutUint64(p.buffer[16:24], uint64(i))
+		if err := txn.Set(p.buffer[:24], val); err != nil {
+			log.Errorf("failed to store accepted value (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+		}
+	}
+
+	if err := txn.Commit(); err != nil {
+		log.Errorf("failed to sync storage", err)
+	}
 }

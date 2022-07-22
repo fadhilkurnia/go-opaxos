@@ -10,3 +10,5 @@ type StateMachine interface {
 type State interface {
 	Hash() uint64
 }
+
+const MaxBatchSize = 10_000

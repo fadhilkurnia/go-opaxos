@@ -33,7 +33,7 @@ func NewReplica(id paxi.ID) *Replica {
 }
 
 func (r *Replica) RunWithWorker() {
-	if r.OPaxos.IsProposer {
+	if r.OPaxos.isProposer {
 		for i := 0; i < r.OPaxos.numSSWorkers; i++ {
 			go r.OPaxos.initAndRunSecretSharingWorker()
 		}

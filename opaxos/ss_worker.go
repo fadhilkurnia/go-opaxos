@@ -36,25 +36,30 @@ func (w *SecretSharingWorker) StartProcessingInput(inputChannel chan *paxi.Clien
 		if err != nil {
 			log.Errorf("failed to do secret sharing: %v", err)
 		}
-		outputChannel <- &SecretSharedCommand{req, ssTime, ss}
+		outputChannel <- &SecretSharedCommand{
+			ClientBytesCommand: req,
+			SSTime:             ssTime,
+			Shares:             ss,
+		}
 	}
 }
 
-func (w *SecretSharingWorker) SecretShareCommand(cmdBytes []byte) ([][]byte, time.Duration, error) {
+func (w *SecretSharingWorker) SecretShareCommand(cmdBytes []byte) ([]SecretShare, time.Duration, error) {
 	var err error
-	var secretShares [][]byte
+	var secretShareBytes [][]byte
+	var secretShares []SecretShare
 
 	s := time.Now()
 
 	if w.algorithm == AlgShamir {
-		secretShares, err = shamir.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
+		secretShareBytes, err = shamir.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
 	} else if w.algorithm == AlgSSMS {
-		secretShares, err = krawczyk.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
+		secretShareBytes, err = krawczyk.SplitWithRandomizer(cmdBytes, w.numShares, w.numThreshold, w.randomizer)
 	} else {
-		secretShares = make([][]byte, w.numShares)
+		secretShareBytes = make([][]byte, w.numShares)
 		for i := 0; i < w.numShares; i++ {
-			secretShares[i] = make([]byte, len(cmdBytes))
-			copy(secretShares[i], cmdBytes)
+			secretShareBytes[i] = make([]byte, len(cmdBytes))
+			copy(secretShareBytes[i], cmdBytes)
 		}
 	}
 
@@ -63,6 +68,11 @@ func (w *SecretSharingWorker) SecretShareCommand(cmdBytes []byte) ([][]byte, tim
 	if err != nil {
 		log.Errorf("failed to split secret: %v\n", err)
 		return nil, ssTime, err
+	}
+
+	secretShares = make([]SecretShare, w.numShares)
+	for i := 0; i < w.numShares; i++ {
+		secretShares[i] = SecretShare(secretShareBytes[i])
 	}
 
 	return secretShares, ssTime, nil

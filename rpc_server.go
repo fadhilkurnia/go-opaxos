@@ -145,6 +145,11 @@ func (n *node) handleClientRequests(conn net.Conn) {
 			log.Debugf("receiving rpc message: %s", msg)
 
 			cmd := BytesCommand(msg.Data)
+
+			if len(n.MessageChan) == cap(n.MessageChan) {
+				log.Warningf("Channel for client's messages is full (len=%d)", len(n.MessageChan))
+			}
+
 			n.MessageChan <- &ClientBytesCommand{&cmd, msg}
 		}
 	}
@@ -213,6 +218,10 @@ func (n *node) handleGenericCommand(conn net.Conn) {
 			}
 
 			log.Debugf("get command from client %x", reqBuff)
+			if len(n.MessageChan) == cap(n.MessageChan) {
+				log.Warningf("Channel for client's messages is full (len=%d)", len(n.MessageChan))
+			}
+
 			n.MessageChan <- &ClientBytesCommand{&cmd, &rpcMsg}
 		}
 	}

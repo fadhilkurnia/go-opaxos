@@ -9,7 +9,7 @@ import (
 
 // Prepare initiates phase 1 of opaxos
 func (op *OPaxos) Prepare() {
-	if op.IsLeader {
+	if op.isLeader {
 		return
 	}
 	op.ballot.Next(op.ID())
@@ -24,60 +24,82 @@ func (op *OPaxos) Prepare() {
 
 // Propose initiates phase 2 of OPaxos
 func (op *OPaxos) Propose(r *SecretSharedCommand) {
-	op.slot++
-	op.log[op.slot] = &entry{
-		ballot:    op.ballot,
-		command:   r.ClientBytesCommand,
-		oriBallot: op.ballot,
-		quorum:    paxi.NewQuorum(),
-		timestamp: time.Now(),
-		ssTime:    r.SSTime,
+	// prepare places for proposal
+	proposalShares := make([][]SecretShare, op.N-1)
+
+	// prepare batch of commands to be proposed
+	batchSize := len(op.onOffPendingCommands) + 1
+	if batchSize > paxi.MaxBatchSize {
+		batchSize = paxi.MaxBatchSize
+	}
+	commands := make([]paxi.BytesCommand, batchSize)
+	commandsHandler := make([]*paxi.RPCMessage, batchSize)
+	ssEncTimes := make([]time.Duration, batchSize)
+	sharesBatch := make([]SecretShare, batchSize)
+
+	// handle first command r in the batch
+	commands[0] = *r.BytesCommand
+	commandsHandler[0] = r.RPCMessage
+	ssEncTimes[0] = r.SSTime
+	sharesBatch[0] = r.Shares[0]
+	for i := 0; i < op.N-1; i++ {
+		proposalShares[i] = append(proposalShares[i], r.Shares[i+1])
 	}
 
-	log.Debugf("get cmd for slot %d", op.slot)
+	// handle the remaining commands in the batch
+	for i := 1; i < batchSize; i++ {
+		cmd := <-op.onOffPendingCommands
+		commands[i] = *cmd.BytesCommand
+		commandsHandler[i] = cmd.RPCMessage
+		ssEncTimes[i] = cmd.SSTime
+		sharesBatch[i] = cmd.Shares[0]
+		for j := 0; j < op.N-1; j++ {
+			proposalShares[j] = append(proposalShares[j], cmd.Shares[j+1])
+		}
+	}
+	log.Warningf("batching %d commands", batchSize)
 
-	op.persistAcceptedValue(op.slot, op.ballot, r.SSCommands[len(r.SSCommands)-1])
+	// prepare the entry that contains a batch of commands
+	op.slot++
+	op.log[op.slot] = &entry{
+		ballot:          op.ballot,
+		oriBallot:       op.ballot,
+		commands:        commands,
+		commandsHandler: commandsHandler,
+		sharesBatch:     sharesBatch,
+		commit:          false,
+		quorum:          paxi.NewQuorum(),
+		ssTime:          ssEncTimes,
+	}
+
+	log.Debugf("get batch of commands for slot %d", op.slot)
+
+	op.persistAcceptedShares(op.slot, op.ballot, op.ballot, sharesBatch)
 	op.log[op.slot].quorum.ACK(op.ID())
 
-	// TODO: broadcast clear message to trusted acceptors, secret-shared message to untrusted acceptors
-	// for now we are sending secret-shared only
-	proposeRequests := make([]interface{}, len(r.SSCommands))
-	for i := 0; i < len(r.SSCommands); i++ {
+	// preparing different proposal for each acceptors
+	proposeRequests := make([]interface{}, op.N-1)
+	for i := 0; i < op.N-1; i++ {
 		proposeRequests[i] = P2a{
-			Ballot:    op.ballot,
-			Slot:      op.slot,
-			Command:   r.SSCommands[i],
-			OriBallot: op.ballot,
+			Ballot:      op.ballot,
+			Slot:        op.slot,
+			SharesBatch: proposalShares[i],
+			OriBallot:   op.ballot,
 		}
 	}
 
 	// broadcast propose message to the acceptors
-	if op.config.Thrifty {
-		op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2-1, proposeRequests)
-	} else {
-		op.MulticastUniqueMessage(proposeRequests)
-	}
-
-	// TODO: store secret-shared commands for backup
-	//commandShares := make([]*CommandShare, len(ssCommand))
-	//for i := 0; i < len(ssCommand); i++ {
-	//	commandShares[i] = &CommandShare{
-	//		Ballot:  op.ballot,
-	//		Command: ssCommand[i],
-	//	}
-	//}
-	//op.log[op.slot].commandShares = commandShares
-	// TODO: decode []byte command become a struct
+	op.MulticastUniqueMessage(proposeRequests)
 }
 
 func (op *OPaxos) HandlePrepareResponse(m P1b) {
+	log.Debugf("handling prepare response %s %d", m, op.isLeader)
+
 	// update log, store the cmdShares for reconstruction, if necessary.
-	if len(m.Log) > 0 {
-		op.updateLog(m.Log)
-	}
+	op.updateLog(m.Log)
 
 	// handle old message from the previous leadership
-	if m.Ballot < op.ballot || op.IsLeader {
+	if m.Ballot < op.ballot || op.isLeader {
 		return
 	}
 
@@ -85,7 +107,7 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 	if m.Ballot > op.ballot {
 		op.persistHighestBallot(m.Ballot)
 		op.ballot = m.Ballot
-		op.IsLeader = false
+		op.isLeader = false
 		op.onOffPendingCommands = nil
 		return
 	}
@@ -96,7 +118,7 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 
 		// phase-1 quorum is fulfilled, this proposer is a leader now
 		if op.Q1(op.quorum) {
-			op.IsLeader = true
+			op.isLeader = true
 
 			// propose any uncommitted entries,
 			// this happened when other leaders yield down before
@@ -104,17 +126,40 @@ func (op *OPaxos) HandlePrepareResponse(m P1b) {
 			op.proposeUncommittedEntries()
 
 			// propose pending commands
-			numPendingCmds := len(op.pendingCommands)
-			for i := 0; i < numPendingCmds; i++ {
-				pcmd := <-op.pendingCommands
-				op.Propose(pcmd)
-			}
-
 			op.onOffPendingCommands = op.pendingCommands
+			log.Debugf("opening pending commands channel len=%d, %d %d", len(op.pendingCommands), len(op.ssJobs), len(op.rawCommands))
 		}
 	}
 }
 
+func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {
+	if len(acceptedCmdShares) == 0 {
+		return
+	}
+
+	for slot, cmdShare := range acceptedCmdShares {
+		op.slot = paxi.Max(op.slot, slot)
+		if e, exist := op.log[slot]; exist {
+			if !e.commit && cmdShare.Ballot > e.ballot {
+				e.ballot = cmdShare.Ballot
+				// store the secret-share from the acceptor
+				e.commandShares = append(e.commandShares, &cmdShare)
+			}
+		} else {
+			op.log[slot] = &entry{
+				ballot:          cmdShare.Ballot,
+				oriBallot:       cmdShare.OriBallot,
+				commands:        nil,
+				commandsHandler: nil,
+				sharesBatch:     cmdShare.SharesBatch,
+				commit:          false,
+				commandShares:   []*CommandShare{&cmdShare}, // store the secret-share from the acceptor
+			}
+		}
+	}
+}
+
+// proposeUncommittedEntries does recovery process
 func (op *OPaxos) proposeUncommittedEntries() {
 	for i := op.execute; i <= op.slot; i++ {
 
@@ -126,99 +171,111 @@ func (op *OPaxos) proposeUncommittedEntries() {
 		op.log[i].ballot = op.ballot
 		op.log[i].quorum = paxi.NewQuorum()
 
+		// prepare places for new proposal
+		proposalShares := make([][]SecretShare, op.N-1)
+
 		// check if there are previously accepted command-shares in this slot,
 		// proposed by different leader
+		isValueRecovered := false
 		if len(op.log[i].commandShares) > 0 {
-			// if there are less than K command-shares, we can ignore them, reset the shares.
-			// but if there are more than or exactly K command-shares, we try to reconstruct them
-			if len(op.log[i].commandShares) >= op.K {
-				// get K command-shares with the biggest ballot number
-				ballotShares := map[paxi.Ballot][][]byte{}
-				for j := 0; j < len(op.log[i].commandShares); j++ {
-					ballotShares[op.log[i].commandShares[j].Ballot] = append(
-						ballotShares[op.log[i].commandShares[j].Ballot], op.log[i].commandShares[j].Command)
+			// find share that has the highest accepted ballot
+			highestBallot := op.log[i].commandShares[0].Ballot
+			maxShareOriBallot := op.log[i].commandShares[0].OriBallot
+			for _, share := range op.log[i].commandShares {
+				if share.Ballot > highestBallot {
+					highestBallot = share.Ballot
+					maxShareOriBallot = share.OriBallot
 				}
-				var acceptedCmdBallot *paxi.Ballot = nil
-				for ballot, cmdShares := range ballotShares {
-					if len(cmdShares) >= op.K && (acceptedCmdBallot == nil || ballot > *acceptedCmdBallot) {
-						acceptedCmdBallot = &ballot
+			}
+
+			// collect shares which OriBallot == maxShareOriBallot (have same ID)
+			recoveryShares := make([]*CommandShare, 0)
+			for _, share := range op.log[i].commandShares {
+				if share.OriBallot == maxShareOriBallot {
+					recoveryShares = append(recoveryShares, share)
+				}
+			}
+
+			// if there are at least T shares, then the value might be chosen, we need to recover it
+			if len(recoveryShares) >= op.T {
+				isValueRecovered = true
+
+				// check the batch size, all shares must have the same bath size
+				batchSize := len(recoveryShares[0].SharesBatch)
+				for _, share := range recoveryShares {
+					if len(share.SharesBatch) != batchSize {
+						log.Fatalf("found share with different batch size (s=%d, b=%s, ob=%s) from %s",
+							i, share.Ballot, share.OriBallot, share.ID,
+						)
 					}
 				}
 
-				if acceptedCmdBallot == nil {
-					log.Errorf("this should not happen, a proposer get phase-1 quorum without seeing k command-shares")
-					continue
+				// recovery process: regenerate the shares for each reconstructed command in the batch
+				allSharesBatch := make([]*[][]byte, batchSize)
+				commandBatch := make([]paxi.BytesCommand, batchSize)
+				for j := 0; j < batchSize; j++ {
+					ss := make([][]byte, 0)
+					for k := 0; k < len(recoveryShares); k++ {
+						ss = append(ss, recoveryShares[k].SharesBatch[j])
+					}
+					newShares, err := shamir.Regenerate(ss, op.N)
+					if err != nil {
+						log.Fatalf("failed to reconstruct command (s=%d, ob=%s)",
+							i, maxShareOriBallot,
+						)
+					}
+					plainCmd, err := shamir.Combine(newShares)
+					log.Debugf("reconstructed new command: %x", plainCmd)
+
+					genericCmd, err := paxi.UnmarshalGenericCommand(plainCmd)
+					if err != nil {
+						log.Fatalf("the reconstructed value is not a valid command: %v", err)
+					}
+
+					allSharesBatch[j] = &newShares
+					commandBatch[j] = genericCmd.ToBytesCommand()
 				}
 
-				reconstructedCmd, err := shamir.Combine(ballotShares[*acceptedCmdBallot])
-				if err != nil {
-					log.Errorf("failed to reconstruct command in slot %d: %v", i, err)
-					continue
+				// put the recovered commands to the consensus instance (entry)
+				op.log[i].oriBallot = maxShareOriBallot
+				op.log[i].commands = commandBatch
+				op.log[i].commandsHandler = nil
+				op.log[i].sharesBatch = nil
+				op.log[i].commit = false
+				op.log[i].ssTime = nil
+				op.log[i].commandShares = nil
+
+				// distribute the secret-shares to each acceptors
+				for j := 0; j < batchSize; j++ {
+					op.log[i].sharesBatch = append(op.log[i].sharesBatch, (*allSharesBatch[j])[0])
+					for k := 0; k < op.N-1; k++ {
+						proposalShares[k] = append(proposalShares[k], (*allSharesBatch[j])[k+1])
+					}
 				}
-				op.log[i].command.Data = reconstructedCmd
 			}
-			op.log[i].commandShares = nil
 		}
 
-		if len(op.log[i].command.Data) == 0 {
-			// TODO: after reconstruction, the command is still empty, we need to propose NULL value (command)
-			// TODO: so we can "skip" this slot. For now we are skipping this slot.
-			continue
+		// if no value recovered, this proposer can propose any value
+		if !isValueRecovered {
+			// TODO: implement this
+			panic("unimplemented")
 		}
 
-		// regenerate secret-shared command
-		newSSCommands, ssTime, err := op.defaultSSWorker.SecretShareCommand(op.log[i].command.Data)
-		if err != nil {
-			log.Errorf("failed to secret share command %v", err)
-			continue
-		}
-
-		// reset the request for this slot, we can not reply to the client
-		// anymore, since this request initially might be sent to other proposer
-		// not this one.
-		bc := paxi.BytesCommand(op.log[i].command.Data)
-		op.log[i].command = &paxi.ClientBytesCommand{
-			BytesCommand: &bc,
-			RPCMessage:   nil,
-		}
-		op.log[i].ssTime = ssTime
-		op.log[i].timestamp = time.Now()
+		// preparing new proposal
 		op.log[i].quorum.ACK(op.ID())
 
-		// TODO: broadcast clear message to other proposer, secret shared message to learner
+		// preparing different proposal for each acceptors
 		proposeRequests := make([]interface{}, op.N-1)
-		for j := 0; j < len(newSSCommands); j++ {
-			proposeRequests[i] = P2a{
-				Ballot:  op.log[i].ballot,
-				Slot:    i,
-				Command: newSSCommands[j],
+		for j := 0; j < op.N-1; j++ {
+			proposeRequests[j] = P2a{
+				Ballot:      op.log[i].ballot,
+				Slot:        i,
+				SharesBatch: proposalShares[j],
+				OriBallot:   op.log[i].oriBallot,
 			}
 		}
-		if op.config.Thrifty {
-			op.MulticastQuorumUniqueMessage(op.config.Protocol.Quorum2-1, proposeRequests)
-		} else {
-			op.MulticastUniqueMessage(proposeRequests)
-		}
-	}
-}
 
-func (op *OPaxos) updateLog(acceptedCmdShares map[int]CommandShare) {
-	for slot, cmdShare := range acceptedCmdShares {
-		op.slot = paxi.Max(op.slot, slot)
-		if e, exist := op.log[slot]; exist {
-			if !e.commit && cmdShare.Ballot > e.ballot {
-				e.ballot = cmdShare.Ballot
-				e.commandShares = append(e.commandShares, &cmdShare)
-			}
-		} else {
-			op.log[slot] = &entry{
-				// TODO: only do this if the acceptor is also a proposer
-				// command:       cmdShare.Command,
-				ballot:        cmdShare.Ballot,
-				commandShares: []*CommandShare{&cmdShare},
-				commit:        false,
-			}
-		}
+		op.MulticastUniqueMessage(proposeRequests)
 	}
 }
 
@@ -229,12 +286,10 @@ func (op *OPaxos) HandleProposeResponse(m P2b) {
 		return
 	}
 
-	// log.Infof("for slot=%d, time until received by leader %v", m.Slot, time.Since(m.SendTime))
-
 	// yield to other proposer with higher ballot number
 	if m.Ballot > op.ballot {
 		op.ballot = m.Ballot
-		op.IsLeader = false
+		op.isLeader = false
 		op.onOffPendingCommands = nil
 	}
 

@@ -53,3 +53,15 @@ func (m P2b) String() string {
 func (m P3) String() string {
 	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
 }
+
+// CommandShare combines each secret-shared command with its ballot number
+type CommandShare struct {
+	Ballot    paxi.Ballot // the accepted ballot number
+	OriBallot paxi.Ballot // the original ballot-number
+	Command   []byte      // the secret-share of value being proposed
+	ID        paxi.ID
+
+	// TODO: remove this, now they are used for debugging
+	History []string
+	ValID   string
+}

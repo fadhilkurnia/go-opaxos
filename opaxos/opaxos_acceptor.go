@@ -10,7 +10,7 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 	if m.Ballot > op.ballot {
 		op.persistHighestBallot(m.Ballot)
 		op.ballot = m.Ballot
-		op.IsLeader = false
+		op.isLeader = false
 		op.onOffPendingCommands = nil
 	}
 
@@ -22,9 +22,10 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 			continue
 		}
 		l[s] = CommandShare{
-			Ballot:    op.log[s].ballot,
-			OriBallot: op.log[s].oriBallot,
-			Command:   op.log[s].command.Data,
+			Ballot:      op.log[s].ballot,
+			OriBallot:   op.log[s].oriBallot,
+			SharesBatch: op.log[s].sharesBatch,
+			ID:          op.ID(),
 		}
 	}
 
@@ -37,40 +38,35 @@ func (op *OPaxos) HandlePrepareRequest(m P1a) {
 }
 
 func (op *OPaxos) HandleProposeRequest(m P2a) {
-
-	// TODO: handle if this is acceptor that also a proposer (clear command, instead of secret-shared command)
-
 	if m.Ballot >= op.ballot {
 		if m.Ballot != op.ballot {
 			op.persistHighestBallot(m.Ballot)
 		}
 
 		op.ballot = m.Ballot
-		op.IsLeader = false
+		op.isLeader = false
 
 		// update slot number
 		op.slot = paxi.Max(op.slot, m.Slot)
 
 		// update entry
-		op.persistAcceptedValue(m.Slot, m.Ballot, m.Command)
-		bc := paxi.BytesCommand(m.Command) // secret-shared command
+		op.persistAcceptedShares(m.Slot, m.Ballot, m.OriBallot, m.SharesBatch)
 		if e, exists := op.log[m.Slot]; exists {
-			// TODO: forward client request to the leader, now we just discard it
-			if !e.commit && m.Ballot > e.ballot && e.command != nil {
-				e.command = &paxi.ClientBytesCommand{
-					BytesCommand: &bc,
-					RPCMessage:   nil,
-				}
+			if !e.commit && m.Ballot > e.ballot {
+				e.sharesBatch = m.SharesBatch
+				e.ballot = m.Ballot
+				e.oriBallot = m.OriBallot
+				e.commands = nil
+				e.commandsHandler = nil
 			}
-			e.ballot = m.Ballot
 		} else {
 			op.log[m.Slot] = &entry{
-				ballot: m.Ballot,
-				command: &paxi.ClientBytesCommand{
-					BytesCommand: &bc,
-					RPCMessage:   nil,
-				},
-				commit: false,
+				ballot:          m.Ballot,
+				oriBallot:       m.OriBallot,
+				commands:        nil,
+				commandsHandler: nil,
+				sharesBatch:     m.SharesBatch,
+				commit:          false,
 			}
 		}
 	}
