@@ -156,11 +156,11 @@ func (op *OPaxos) run() {
 			}
 
 			// secret-shares the first and the remaining raw commands
-			op.ssJobs <- rCmd
+			op.nonBlockingEnqueueSSJobs(rCmd)
 			numRawCmd := len(op.rawCommands)
 			for numRawCmd > 0 {
 				rCmd = <-op.rawCommands
-				op.ssJobs <- rCmd
+				op.nonBlockingEnqueueSSJobs(rCmd)
 				numRawCmd--
 			}
 			break
@@ -187,6 +187,22 @@ func (op *OPaxos) run() {
 	}
 
 	panic(fmt.Sprintf("opaxos exited its main loop: %v", err))
+}
+
+func (op *OPaxos) nonBlockingEnqueueSSJobs(rawCmd *paxi.ClientBytesCommand) {
+	isChannelFull := false
+	if len(op.ssJobs) == cap(op.ssJobs) {
+		log.Warningf("Channel for ss jobs is full (len=%d)", len(op.ssJobs))
+		isChannelFull = true
+	}
+
+	if !isChannelFull {
+		op.ssJobs <- rawCmd
+	} else {
+		go func() {
+			op.ssJobs <- rawCmd
+		}()
+	}
 }
 
 func (op *OPaxos) handleProtocolMessages(pmsg interface{}) error {
