@@ -57,7 +57,7 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 			proposalShares[j] = append(proposalShares[j], cmd.Shares[j+1])
 		}
 	}
-	log.Warningf("batching %d commands", batchSize)
+	log.Debugf("batching %d commands", batchSize)
 
 	// prepare the entry that contains a batch of commands
 	op.slot++
