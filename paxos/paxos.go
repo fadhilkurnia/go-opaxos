@@ -513,16 +513,13 @@ func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
 		return
 	}
 
-	txn := storage.NewTransaction(true)
-	defer txn.Discard()
-
 	binary.BigEndian.PutUint64(p.buffer[:8], uint64(b))
-	if err := txn.Set([]byte("b"), p.buffer[:8]); err != nil {
+	if _, err := storage.Write(p.buffer[:8]); err != nil {
 		log.Errorf("failed to store max ballot %v", err)
 	}
 
-	if err := txn.Commit(); err != nil {
-		log.Errorf("failed to sync storage", err)
+	if err := storage.Flush(); err != nil {
+		log.Errorf("failed to flush data to underlying file writer", err)
 	}
 }
 
@@ -532,19 +529,19 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 		return
 	}
 
-	txn := storage.NewTransaction(true)
-	defer txn.Discard()
-
 	binary.BigEndian.PutUint64(p.buffer[:8], uint64(slot))
 	binary.BigEndian.PutUint64(p.buffer[8:16], uint64(b))
 	for i, val := range values {
 		binary.BigEndian.PutUint64(p.buffer[16:24], uint64(i))
-		if err := txn.Set(p.buffer[:24], val); err != nil {
+		if _, err := storage.Write(p.buffer[:24]); err != nil {
+			log.Errorf("failed to store accepted ballot (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+		}
+		if _, err := storage.Write(val); err != nil {
 			log.Errorf("failed to store accepted value (s=%d, b=%s, i=%d): %v", slot, b, i, err)
 		}
 	}
 
-	if err := txn.Commit(); err != nil {
-		log.Errorf("failed to sync storage", err)
+	if err := storage.Flush(); err != nil {
+		log.Errorf("failed to flush data to underlying file writer", err)
 	}
 }

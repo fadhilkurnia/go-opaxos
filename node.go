@@ -1,6 +1,7 @@
 package paxi
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/ailidani/paxi/log"
-	"github.com/dgraph-io/badger/v3"
 )
 
 var isPprof = flag.Bool("pprof", false, "activate pprof server")
@@ -28,7 +28,7 @@ type Node interface {
 	Forward(id ID, r Request)
 	Register(m interface{}, f interface{})
 	GetConfig() *Config
-	GetStorage() *badger.DB
+	GetStorage() *bufio.Writer
 }
 
 // node implements Node interface
@@ -41,7 +41,7 @@ type node struct {
 	ProtocolMsgChan chan interface{}
 	handles         map[string]reflect.Value
 	server          *http.Server
-	storage         *badger.DB
+	storage         *bufio.Writer
 	buffer          []byte
 
 	sync.RWMutex
@@ -68,14 +68,13 @@ func NewNode(id ID) Node {
 		var err error
 		storageFile = fmt.Sprintf("%s_%s", storageFile, id)
 		if err = os.RemoveAll(storageFile); err != nil {
-			log.Errorf("failed to cleanup place for storage")
+			log.Fatalf("failed to cleanup place for storage")
 		}
-		opts := badger.DefaultOptions(storageFile)
-		opts.Logger = nil
-		n.storage, err = badger.Open(opts)
+		f, err := os.Create(storageFile)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("failed to create file for storage: %v", err)
 		}
+		n.storage = bufio.NewWriter(f)
 	}
 
 	return n
@@ -89,7 +88,7 @@ func (n *node) GetConfig() *Config {
 	return &config
 }
 
-func (n *node) GetStorage() *badger.DB {
+func (n *node) GetStorage() *bufio.Writer {
 	return n.storage
 }
 
