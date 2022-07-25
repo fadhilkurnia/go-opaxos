@@ -41,9 +41,8 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	commands[0] = *r.BytesCommand
 	commandsHandler[0] = r.RPCMessage
 	ssEncTimes[0] = r.SSTime
-	sharesBatch[0] = r.Shares[0]
 	for i := 0; i < op.N-1; i++ {
-		proposalShares[i] = append(proposalShares[i], r.Shares[i+1])
+		proposalShares[i] = append(proposalShares[i], r.Shares[i])
 	}
 
 	// handle the remaining commands in the batch
@@ -52,9 +51,8 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 		commands[i] = *cmd.BytesCommand
 		commandsHandler[i] = cmd.RPCMessage
 		ssEncTimes[i] = cmd.SSTime
-		sharesBatch[i] = cmd.Shares[0]
 		for j := 0; j < op.N-1; j++ {
-			proposalShares[j] = append(proposalShares[j], cmd.Shares[j+1])
+			proposalShares[j] = append(proposalShares[j], cmd.Shares[j])
 		}
 	}
 	log.Debugf("batching %d commands", batchSize)
