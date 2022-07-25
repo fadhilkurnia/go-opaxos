@@ -74,7 +74,7 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 
 	log.Debugf("get batch of commands for slot %d", op.slot)
 
-	op.persistAcceptedShares(op.slot, op.ballot, op.ballot, sharesBatch)
+	op.persistAcceptedValues(op.slot, op.ballot, op.ballot, commands)
 	op.log[op.slot].quorum.ACK(op.ID())
 
 	// preparing different proposal for each acceptors

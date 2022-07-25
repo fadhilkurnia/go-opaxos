@@ -121,7 +121,7 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 }
 
 func (op *OPaxos) initAndRunSecretSharingWorker() {
-	numShares := op.N
+	numShares := op.N - 1
 	numThreshold := op.T
 
 	if op.config.Thrifty {
@@ -133,7 +133,7 @@ func (op *OPaxos) initAndRunSecretSharingWorker() {
 }
 
 func (op *OPaxos) initDefaultSecretSharingWorker() {
-	numShares := op.N
+	numShares := op.N - 1
 	numThreshold := op.T
 
 	if op.config.Thrifty {
@@ -244,6 +244,30 @@ func (op *OPaxos) persistHighestBallot(b paxi.Ballot) {
 	}
 }
 
+func (op *OPaxos) persistAcceptedValues(slot int, b paxi.Ballot, bori paxi.Ballot, values []paxi.BytesCommand) {
+	storage := op.GetStorage()
+	if storage == nil {
+		return
+	}
+
+	binary.BigEndian.PutUint64(op.buffer[:8], uint64(slot))
+	binary.BigEndian.PutUint64(op.buffer[8:16], uint64(b))
+	binary.BigEndian.PutUint64(op.buffer[16:24], uint64(bori))
+	for i, val := range values {
+		binary.BigEndian.PutUint16(op.buffer[24:26], uint16(i))
+		if _, err := storage.Write(op.buffer[:26]); err != nil {
+			log.Errorf("failed to store accepted ballot (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+		}
+		if _, err := storage.Write(val); err != nil {
+			log.Errorf("failed to store accepted values (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+		}
+	}
+
+	if err := storage.Flush(); err != nil {
+		log.Errorf("failed to flush data to underlying file writer", err)
+	}
+}
+
 func (op *OPaxos) persistAcceptedShares(slot int, b paxi.Ballot, bori paxi.Ballot, shares []SecretShare) {
 	storage := op.GetStorage()
 	if storage == nil {
@@ -259,7 +283,7 @@ func (op *OPaxos) persistAcceptedShares(slot int, b paxi.Ballot, bori paxi.Ballo
 			log.Errorf("failed to store accepted ballot (s=%d, b=%s, i=%d): %v", slot, b, i, err)
 		}
 		if _, err := storage.Write(val); err != nil {
-			log.Errorf("failed to store accepted value (s=%d, b=%s, i=%d): %v", slot, b, i, err)
+			log.Errorf("failed to store accepted shares (s=%d, b=%s, i=%d): %v", slot, b, i, err)
 		}
 	}
 

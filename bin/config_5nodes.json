@@ -36,10 +36,11 @@
     "buffer_size": 200000,
     "multiversion": false,
     "benchmark": {
-        "T": 20,
+        "T": 10,
         "N": 0,
         "K": 9,
         "W": 1.0,
+        "Size": 50,
         "Throttle": 5000,
         "Concurrency": 10,
         "Distribution": "uniform",
