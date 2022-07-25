@@ -54,7 +54,7 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		onOffPendingCommands: nil,
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
-		buffer:               make([]byte, 24),
+		buffer:               make([]byte, 18),
 	}
 
 	for _, opt := range options {
@@ -399,7 +399,11 @@ func (p *Paxos) HandleP2b(m P2b) {
 			p.Broadcast(P3{
 				Ballot:   m.Ballot,
 				Slot:     m.Slot,
-				Commands: p.log[m.Slot].commands,
+				Commands: nil,
+				// For optimization, we don't resend the values in the commit message in this prototype.
+				// For production usage, the proposer need to send commit message with values to
+				// acceptors whose P2b messages is not in the phase-2 quorum processed; or the acceptors
+				// can contact back the proposer to send the value.
 			})
 
 			p.exec()
@@ -532,8 +536,8 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 	binary.BigEndian.PutUint64(p.buffer[:8], uint64(slot))
 	binary.BigEndian.PutUint64(p.buffer[8:16], uint64(b))
 	for i, val := range values {
-		binary.BigEndian.PutUint64(p.buffer[16:24], uint64(i))
-		if _, err := storage.Write(p.buffer[:24]); err != nil {
+		binary.BigEndian.PutUint16(p.buffer[16:18], uint16(i))
+		if _, err := storage.Write(p.buffer[:18]); err != nil {
 			log.Errorf("failed to store accepted ballot (s=%d, b=%s, i=%d): %v", slot, b, i, err)
 		}
 		if _, err := storage.Write(val); err != nil {
