@@ -417,7 +417,9 @@ func (p *Paxos) HandleP3(m P3) {
 
 	e, exist := p.log[m.Slot]
 	if exist {
-		e.commands = m.Commands
+		if m.Commands != nil {
+			e.commands = m.Commands
+		}
 		e.commit = true
 	} else {
 		p.log[m.Slot] = &entry{

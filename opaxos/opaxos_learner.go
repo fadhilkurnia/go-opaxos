@@ -12,7 +12,9 @@ func (op *OPaxos) HandleCommitRequest(m P3) {
 
 	e, exist := op.log[m.Slot]
 	if exist {
-		e.sharesBatch = m.SharesBatch
+		if m.SharesBatch != nil {
+			e.sharesBatch = m.SharesBatch
+		}
 		e.commit = true
 	} else {
 		op.log[m.Slot] = &entry{
