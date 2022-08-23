@@ -665,12 +665,9 @@ func (fop *FastOPaxos) exec() {
 func (fop *FastOPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.CommandReply {
 	var cmd paxi.Command
 	reply := paxi.CommandReply{
-		OK:         true,
-		Ballot:     e.ballot.String(),
-		Slot:       0, // unused for now (always empty)
-		EncodeTime: 0,
-		SentAt:     0,
-		Data:       nil,
+		Code:   paxi.CommandReplyErr,
+		SentAt: 0,
+		Data:   nil,
 	}
 
 	if *paxi.ClientIsStateful {
@@ -688,7 +685,7 @@ func (fop *FastOPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.Co
 
 	} else {
 		log.Errorf("unknown client stateful property, does not know how to handle the command")
-		reply.OK = false
+		reply.Code = paxi.CommandReplyErr
 	}
 
 	log.Debugf("executing command %v", cmd)

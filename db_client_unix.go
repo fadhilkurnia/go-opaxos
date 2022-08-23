@@ -682,7 +682,8 @@ func (c *RPCClient) AsyncRead(key []byte, callback func(*CommandReply)) {
 	resp, err := c.Do(COMMAND, cmd.ToBytesCommand())
 	if err != nil {
 		callback(&CommandReply{
-			OK: false,
+			Code: CommandReplyErr,
+			Data: []byte(fmt.Sprintf("%s", err)),
 		})
 		return
 	}

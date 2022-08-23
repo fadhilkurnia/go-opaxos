@@ -69,7 +69,7 @@ func (b *Benchmark) Load() {
 
 		reqStartTime := time.Now()
 		dbClient.Put(Key(j), val, func(reply *CommandReply) {
-			if reply.OK {
+			if reply.Code == CommandReplyOK {
 				latencies <- time.Since(reqStartTime)
 			} else {
 				log.Error("get non ok response from database server")
@@ -245,7 +245,7 @@ func (b *Benchmark) RunCallbackClient() {
 
 						latencies <- reqEndTime.Sub(reqStartTime)
 
-						if !reply.OK {
+						if reply.Code == CommandReplyErr {
 							log.Error("get non ok response from database server")
 						}
 
@@ -265,7 +265,7 @@ func (b *Benchmark) RunCallbackClient() {
 
 						latencies <- reqEndTime.Sub(reqStartTime)
 
-						if !reply.OK {
+						if reply.Code == CommandReplyErr {
 							log.Error("get non ok response from database server")
 						}
 
@@ -604,9 +604,15 @@ func (b *Benchmark) RunBlockingClient() {
 
 				// wait for the response
 				resp := <-receiverCh
-				if resp.OK {
+				if resp.Code == CommandReplyOK {
 					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
-					encodeTimes <- time.Duration(resp.Metadata[MetadataSecretSharingTime].(int64))
+					if ssTimeRaw, exist := resp.Metadata[MetadataSecretSharingTime]; exist {
+						if ssTimeInt, ok := ssTimeRaw.(int64); ok {
+							encodeTimes <- time.Duration(ssTimeInt)
+						} else {
+							log.Errorf("encoding (secret-sharing) time must be an int64 time.Duration")
+						}
+					}
 				} else {
 					log.Debugf("receive non-ok response")
 				}
@@ -806,7 +812,7 @@ func (b *Benchmark) RunThroughputCollectorClients() {
 
 				// wait for the response
 				resp := <-receiverCh
-				if resp.OK {
+				if resp.Code == CommandReplyOK {
 					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
 				} else {
 					log.Errorf("receive non-ok response")

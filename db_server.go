@@ -240,7 +240,6 @@ func (n *node) handleGenericCommandX(conn net.Conn) {
 	}
 }
 
-
 func (n *node) handleIncomingCommands(conn net.Conn) {
 	defer conn.Close()
 
@@ -323,8 +322,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 
 func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replyStream *bufio.Writer) {
 	cmdReply := &CommandReply{
-		Code:       CommandReplyOK,
-		OK:         true,
+		Code: CommandReplyOK,
 	}
 
 	switch cmdType {

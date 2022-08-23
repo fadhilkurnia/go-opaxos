@@ -277,8 +277,9 @@ func (fp *FastPaxos) handleP2b(m P2b) {
 		log.Warningf("TODO: Need to retry with higher ballot number in another slot")
 		if e.command.RPCMessage != nil && m.Ballot.ID() != fp.ID() {
 			failResp := paxi.CommandReply{
-				OK:     false,
-				Ballot: fp.ballot.String(),
+				Code:     paxi.CommandReplyErr,
+				Data:     []byte("need to retry with higher ballot in another slot"),
+				Metadata: map[byte]interface{}{paxi.MetadataCurrentBallot: fp.ballot.String()},
 			}
 			err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 			if err != nil {
@@ -368,8 +369,9 @@ func (fp *FastPaxos) handleFastP2b(m P2b) {
 		if e.command.RPCMessage != nil {
 			log.Warningf("Send fail response")
 			failResp := paxi.CommandReply{
-				OK:     false,
-				Ballot: fp.ballot.String(),
+				Code:     paxi.CommandReplyErr,
+				Data:     []byte(fmt.Sprintf("other proposer with ballot %s make the value chosen in slot %d", e.ballot, m.Slot)),
+				Metadata: map[byte]interface{}{paxi.MetadataCurrentBallot: fp.ballot.String()},
 			}
 			err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 			if err != nil {
@@ -407,8 +409,9 @@ func (fp *FastPaxos) handleP3(m P3) {
 	// if the command is not from this node, send failure response
 	if e.command.RPCMessage != nil && m.Ballot.ID() != fp.ID() {
 		failResp := paxi.CommandReply{
-			OK:     false,
-			Ballot: fp.ballot.String(),
+			Code:     paxi.CommandReplyErr,
+			Data:     []byte("command is not from this node"),
+			Metadata: map[byte]interface{}{paxi.MetadataCurrentBallot: fp.ballot.String()},
 		}
 		err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 		if err != nil {
@@ -446,12 +449,9 @@ func (fp *FastPaxos) exec() {
 func (fp *FastPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.CommandReply {
 	var cmd paxi.Command
 	reply := paxi.CommandReply{
-		OK:         true,
-		Ballot:     e.ballot.String(),
-		Slot:       0, // unused for now (always empty)
-		EncodeTime: 0,
-		SentAt:     0,
-		Data:       nil,
+		Code:   paxi.CommandReplyOK,
+		SentAt: 0,
+		Data:   nil,
 	}
 
 	if *paxi.ClientIsStateful {
@@ -469,7 +469,8 @@ func (fp *FastPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.Comm
 
 	} else {
 		log.Errorf("unknown client stateful property, does not know how to handle the command")
-		reply.OK = false
+		reply.Code = paxi.CommandReplyErr
+		reply.Data = []byte("unknown client stateful property, does not know how to handle the command")
 	}
 
 	log.Debugf("executing command %v", cmd)

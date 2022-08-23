@@ -64,6 +64,7 @@ const (
 	MetadataSecretSharingTime byte = iota
 	MetadataAcceptedBallot
 	MetadataSlot
+	MetadataCurrentBallot
 )
 
 type SerializableCommand interface {
@@ -107,12 +108,6 @@ type CommandReply struct {
 	SentAt    int64                // the time (in unixnano) when client sent the command replayed
 	Data      []byte               // any data, if this is reply for put command, the Data contains the value
 	Metadata  map[byte]interface{} // metadata for measurements, the key is Metadata constant
-
-	// TODO: move these fields below into Metadata
-	OK         bool
-	Slot       int
-	EncodeTime time.Duration // time taken for secret-sharing, filled by server
-	Ballot     string
 }
 
 func (c *ClientCommand) Reply(r *CommandReply) error {

@@ -802,12 +802,9 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, c
 
 	// by default, we do not send all the data, to make the response compact
 	reply := &paxi.CommandReply{
-		OK:         true,
-		Ballot:     "", // unused for now (always empty)
-		Slot:       0,  // unused for now (always empty)
-		EncodeTime: 0,
-		SentAt:     0,
-		Data:       nil,
+		Code:   paxi.CommandReplyOK,
+		SentAt: 0,
+		Data:   nil,
 	}
 
 	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
@@ -824,7 +821,7 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, c
 	default:
 		log.Errorf("unknown client db command")
 		reply.Code = paxi.CommandReplyErr
-		reply.OK = false
+		reply.Data = []byte("unknown client db command")
 		return reply
 	}
 

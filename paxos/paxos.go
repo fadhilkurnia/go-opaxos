@@ -465,12 +465,9 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 	var cmd paxi.Command
 
 	reply := &paxi.CommandReply{
-		OK:         true,
-		Ballot:     "", // unused for now (always empty)
-		Slot:       0,  // unused for now (always empty)
-		EncodeTime: 0,
-		SentAt:     0,
-		Data:       nil,
+		Code:   paxi.CommandReplyOK,
+		SentAt: 0,
+		Data:   nil,
 	}
 
 	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
@@ -487,7 +484,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 	default:
 		log.Errorf("unknown client db command")
 		reply.Code = paxi.CommandReplyErr
-		reply.OK = false
+		reply.Data = []byte("unknown client db command")
 		return reply
 	}
 
