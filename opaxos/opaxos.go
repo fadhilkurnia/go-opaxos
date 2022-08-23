@@ -2,7 +2,6 @@ package opaxos
 
 import (
 	"encoding/binary"
-	"flag"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
@@ -11,8 +10,6 @@ import (
 	"strings"
 	"time"
 )
-
-var recoveryTest = flag.String("read", "", "test recovery")
 
 // entry in the log containing a batch of clear commands OR
 // a batch of secret-share of commands, one for each command.
