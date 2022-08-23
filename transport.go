@@ -2,8 +2,6 @@ package paxi
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/gob"
 	"errors"
 	"flag"
 	"github.com/ailidani/paxi/encoder"
@@ -192,16 +190,13 @@ func (u *udp) Dial() error {
 	}
 
 	go func(conn *net.UDPConn) {
-		// packet := make([]byte, 1500)
-		// w := bytes.NewBuffer(packet)
-		w := new(bytes.Buffer)
+		connWriter := bufio.NewWriter(conn)
+		defer conn.Close()
 		for m := range u.send {
-			gob.NewEncoder(w).Encode(&m)
-			_, err := conn.Write(w.Bytes())
+			err := encoder.Encode(connWriter, m)
 			if err != nil {
 				log.Error(err)
 			}
-			w.Reset()
 		}
 	}(conn)
 
@@ -218,21 +213,23 @@ func (u *udp) Listen() {
 		log.Fatal("UDP Listener error: ", err)
 	}
 	go func(conn *net.UDPConn) {
-		packet := make([]byte, 1500)
+		connReader := bufio.NewReader(conn)
 		defer conn.Close()
 		for {
 			select {
 			case <-u.close:
 				return
 			default:
-				_, err := conn.Read(packet)
+				var m interface{}
+				err := encoder.Decode(connReader, &m)
 				if err != nil {
+					if err == io.EOF {
+						log.Infof("connection is closed from the other end %v", err)
+						return
+					}
 					log.Error(err)
 					continue
 				}
-				r := bytes.NewReader(packet)
-				var m interface{}
-				gob.NewDecoder(r).Decode(&m)
 				u.recv <- m
 			}
 		}
