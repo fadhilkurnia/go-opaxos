@@ -3,6 +3,7 @@ package paxi
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -13,6 +14,7 @@ type Stat struct {
 	Data   []float64
 	Size   int
 	Mean   float64
+	StdDev float64
 	Min    float64
 	Max    float64
 	Median float64
@@ -37,7 +39,7 @@ func (s Stat) WriteFile(path string) error {
 }
 
 func (s Stat) String() string {
-	return fmt.Sprintf("size = %d\nmean = %f\nmin = %f\nmax = %f\nmedian = %f\np95 = %f\np99 = %f\np999 = %f\n", s.Size, s.Mean, s.Min, s.Max, s.Median, s.P95, s.P99, s.P999)
+	return fmt.Sprintf("size = %d\nmean = %f\nstddev = %f\nmin = %f\nmax = %f\nmedian = %f\np95 = %f\np99 = %f\np999 = %f\n", s.Size, s.Mean, s.StdDev, s.Min, s.Max, s.Median, s.P95, s.P99, s.P999)
 }
 
 // Statistic function creates Stat object from raw latency data
@@ -48,6 +50,7 @@ func Statistic(latency []time.Duration) Stat {
 			Data:   ms,
 			Size:   0,
 			Mean:   0.0,
+			StdDev: 0.0,
 			Min:    0.0,
 			Max:    0.0,
 			Median: 0.0,
@@ -66,10 +69,11 @@ func Statistic(latency []time.Duration) Stat {
 		sum += m
 	}
 	size := len(ms)
-	return Stat{
+	stat := Stat{
 		Data:   ms,
 		Size:   size,
 		Mean:   sum / float64(size),
+		StdDev: 0.0,
 		Min:    ms[0],
 		Max:    ms[size-1],
 		Median: ms[int(0.5*float64(size))],
@@ -77,4 +81,11 @@ func Statistic(latency []time.Duration) Stat {
 		P99:    ms[int(0.99*float64(size))],
 		P999:   ms[int(0.999*float64(size))],
 	}
+	sumAbsSq := 0.0
+	for _, m := range ms {
+		x := math.Abs(m - stat.Mean)
+		sumAbsSq += x*x
+	}
+	stat.StdDev = math.Sqrt(sumAbsSq/float64(size))
+	return stat
 }
