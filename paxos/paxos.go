@@ -503,7 +503,7 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 	}
 
 	if *paxi.GatherSecretShareTime {
-		reply.Metadata[paxi.MetadataSecretSharingTime] = 0 * time.Second
+		reply.Metadata[paxi.MetadataSecretSharingTime] = time.Duration(0) * time.Second
 	}
 	if *paxi.ClientIsStateful {
 		reply.Metadata[paxi.MetadataAcceptedBallot] = e.ballot
