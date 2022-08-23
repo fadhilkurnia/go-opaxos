@@ -13,16 +13,27 @@ import (
 )
 
 type entry struct {
-	ballot    paxi.Ballot                 // the accepted ballot number
-	isFast    bool                        // indicate whether ballot is a fast ballot or an ordinary one
-	command   *opaxos.SecretSharedCommand // proposed command, with reply writer
-	ssVal     []byte                      // the accepted secret-share
-	oriBallot paxi.Ballot                 // the original ballot of the accepted value
-	commit    bool                        // commit indicates whether this entry is already committed or not
-	quorum    *paxi.Quorum                // phase-2 quorum
-	shares    []*CommandShare             // shares contain secret-shares for recovery purposes
-	History   []string
-	valID     string
+	ballot    paxi.Ballot // the accepted ballot number
+	oriBallot paxi.Ballot // the original ballot of the accepted secret-share
+	commit    bool        // commit indicates whether this entry is already committed or not
+
+	// field for acceptor
+	ssVal        []byte               // TODO: deprecate this, replace with share
+	share        []opaxos.SecretShare // the accepted secret-share
+	isFast       bool                 // indicate whether any secret-share can be accepted or not // TODO: deprecate this
+	canAcceptAny bool                 // indicate whether any secret-share can be accepted or not
+
+	// field for trusted proposer
+	quorum         *paxi.Quorum        // phase-2 quorum
+	command        paxi.BytesCommand   // proposed command
+	commandHandler *paxi.ClientCommand // handler to reply to client for the command
+	commandShare   []*CommandShare     // collection of command from multiple acceptors, with the same slot number
+	shares         []*CommandShare     // TODO: deprecate this, replace with commandShare
+	ssTime         time.Duration
+
+	// for debugging purposes
+	History []string
+	valID   string
 }
 
 // FastOPaxos instance in a single Node
@@ -36,9 +47,9 @@ type FastOPaxos struct {
 	slot      int            // highest non-empty slot number
 
 	protocolMessages chan interface{}                 // receiver channel for prepare, propose, commit messages
-	rawCommands      chan *paxi.ClientBytesCommand    // raw commands from clients
+	rawCommands      chan *paxi.ClientCommand         // raw commands from clients
 	pendingCommands  chan *opaxos.SecretSharedCommand // pending commands that will be proposed
-	retryCommands    chan *paxi.ClientBytesCommand    // retryCommands holds command that need to be reproposed due to conflict
+	retryCommands    chan *paxi.ClientCommand         // retryCommands holds command that need to be reproposed due to conflict
 
 	N               int                            // N is the number of acceptors
 	threshold       int                            // threshold is the shares required to regenerate the secret value
@@ -61,9 +72,9 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 		log:              make(map[int]*entry, paxi.GetConfig().BufferSize),
 		slot:             -1,
 		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
-		rawCommands:      make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		rawCommands:      make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
 		pendingCommands:  make(chan *opaxos.SecretSharedCommand, paxi.GetConfig().ChanBufferSize),
-		retryCommands:    make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		retryCommands:    make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
 		Q2:               func(q *paxi.Quorum) bool { return q.Majority() },
 		N:                n.GetConfig().N(),
 		threshold:        cfg.Protocol.Threshold,
@@ -125,13 +136,13 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 	fop.slot++
 	fop.log[fop.slot] = &entry{
 		ballot:    fop.ballot,
-		isFast:    true,
-		command:   cmd,
-		ssVal:     cmd.Shares[len(cmd.Shares)-1],
 		oriBallot: fop.ballot,
-		quorum:    paxi.NewQuorum(),
-		shares:    nil,
-		valID:     fmt.Sprintf("%x", []byte(*cmd.BytesCommand)),
+		isFast:    true,
+		//command:   cmd,
+		//ssVal:     cmd.Shares[len(cmd.Shares)-1],
+		quorum: paxi.NewQuorum(),
+		//shares:    nil,
+		valID: fmt.Sprintf("%x", cmd.RawCommand),
 	}
 	fop.log[fop.slot].History = append(
 		fop.log[fop.slot].History,
@@ -142,7 +153,8 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 			fop.ballot,
 			fop.ballot,
 			fop.log[fop.slot].valID,
-			fop.log[fop.slot].ssVal))
+			"asd"))
+	//fop.log[fop.slot].ssVal))
 
 	// self ack the proposal
 	fop.log[fop.slot].quorum.ACK(fop.ID())
@@ -226,7 +238,7 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal w with b=%s ob=%s vid=%s ssval=%x",
 			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, m.Command))
 		if e.oriBallot != m.OriBallot {
-			e.ssVal = m.Command       // update the accepted secret-share
+			//e.ssVal = m.Command       // update the accepted secret-share
 			e.oriBallot = m.OriBallot // update the accepted original-ballot
 		}
 		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal without update b=%s ob=%s vid=%s ssval=%x",
@@ -237,16 +249,9 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 
 	} else {
 		fop.log[m.Slot] = &entry{
-			ballot: m.Ballot,
-			isFast: false,
-			command: &opaxos.SecretSharedCommand{
-				ClientBytesCommand: &paxi.ClientBytesCommand{
-					BytesCommand: nil,
-					RPCMessage:   nil,
-				},
-				SSTime: 0,
-				Shares: nil,
-			},
+			ballot:    m.Ballot,
+			isFast:    false,
+			command:   nil,
 			ssVal:     m.Command,
 			oriBallot: m.OriBallot,
 			commit:    false,
@@ -355,7 +360,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 			fop.Broadcast(P3{
 				Ballot:    m.Ballot,
 				Slot:      m.Slot,
-				Command:   *e.command.BytesCommand,
+				Command:   e.command,
 				OriBallot: e.oriBallot,
 			})
 			fop.exec()
@@ -363,7 +368,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		}
 
 		log.Warningf("TODO: Need to retry with higher ballot number in another slot")
-		if e.command != nil && e.command.RPCMessage != nil && m.Ballot.ID() != fop.ID() {
+		if e.command != nil && e.commandHandler != nil && m.Ballot.ID() != fop.ID() {
 			fop.sendFailureResponse(e)
 		}
 
@@ -421,7 +426,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 			fop.Broadcast(P3{
 				Ballot:    m.Ballot,
 				Slot:      m.Slot,
-				Command:   *e.command.BytesCommand, // TODO: hide this from untrusted node
+				Command:   e.command, // TODO: hide this from untrusted node
 				OriBallot: e.oriBallot,
 			})
 			fop.exec()
@@ -465,7 +470,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 		// then send failure response to client
 		if highestBallot > fop.ballot {
 			log.Warningf("other proposer with ballot %s make the value chosen in slot %d | hb=%s id=%s", e.ballot, m.Slot, highestBallot, fop.ID())
-			if e.command != nil && e.command.RPCMessage != nil {
+			if e.command != nil && e.commandHandler != nil {
 				fop.sendFailureResponse(e)
 			}
 			return
@@ -500,14 +505,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 			// TODO: reuse some of the shares to prevent duplicate
 
 			if e.command == nil {
-				e.command = &opaxos.SecretSharedCommand{
-					ClientBytesCommand: &paxi.ClientBytesCommand{
-						BytesCommand: nil,
-						RPCMessage:   nil,
-					},
-					SSTime: 0,
-					Shares: nil,
-				}
+				e.command = nil
 			}
 
 			newSharesStruct := make([]opaxos.SecretShare, len(newShares))
@@ -515,10 +513,10 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 				newSharesStruct[j] = newShares[j]
 			}
 
-			e.command.SSTime = dur
-			e.command.Shares = newSharesStruct
-			bc := paxi.BytesCommand(val)
-			e.command.BytesCommand = &bc // replace the held command (secret value)
+			e.ssTime = dur
+			//e. command.Shares = newSharesStruct
+			//bc := paxi.BytesCommand(val)
+			//e.command.BytesCommand = &bc // replace the held command (secret value)
 			e.ssVal = newShares[len(newShares)-1]
 			e.oriBallot = e.shares[highestShareIdx].OriBallot
 			e.valID = e.shares[highestShareIdx].ValID
@@ -560,13 +558,13 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 
 		// prepare the classic proposal
 		log.Debugf("preparing classic proposal slot=%d b=%s ob=%s", m.Slot, fop.ballot, e.oriBallot)
-		proposals := make([]interface{}, len(e.command.Shares)-1)
-		for j := 0; j < len(e.command.Shares)-1; j++ {
+		proposals := make([]interface{}, len(e.command)-1)
+		for j := 0; j < len(e.command)-1; j++ {
 			proposals[j] = P2a{
 				Fast:      false,
 				Ballot:    fop.ballot,
 				Slot:      m.Slot,
-				Command:   e.command.Shares[j],
+				Command:   e.command,
 				OriBallot: e.oriBallot,
 				ValID:     e.valID,
 			}
@@ -578,7 +576,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 }
 
 func (fop *FastOPaxos) handleP3(m P3) {
-	bc := paxi.BytesCommand(m.Command)
+	//bc := paxi.BytesCommand(m.Command)
 	if _, exists := fop.log[m.Slot]; !exists {
 		fop.log[m.Slot] = &entry{
 			ballot:    m.Ballot,
@@ -607,13 +605,13 @@ func (fop *FastOPaxos) handleP3(m P3) {
 	if e.quorum != nil {
 		e.quorum.Reset()
 	}
-	if e.command == nil {
-		e.command = &opaxos.SecretSharedCommand{}
-	}
-	if e.command.ClientBytesCommand == nil {
-		e.command.ClientBytesCommand = &paxi.ClientBytesCommand{}
-	}
-	e.command.ClientBytesCommand.BytesCommand = &bc
+	//if e.command == nil {
+	//	e.command = &opaxos.SecretSharedCommand{}
+	//}
+	//if e.command.ClientBytesCommand == nil {
+	//	e.command.ClientBytesCommand = &paxi.ClientBytesCommand{}
+	//}
+	//e.command.ClientBytesCommand.BytesCommand = &bc
 
 	e.History = append(
 		e.History,
@@ -626,17 +624,17 @@ func (fop *FastOPaxos) handleP3(m P3) {
 			fop.log[m.Slot].ssVal))
 
 	// if the command is not from this node, send failure response
-	if e.command.RPCMessage != nil && m.Ballot.ID() != fop.ID() {
-		failResp := paxi.CommandReply{
-			OK:     false,
-			Ballot: fop.ballot.String(),
-		}
-		err := e.command.RPCMessage.SendBytesReply(failResp.Marshal())
-		if err != nil {
-			log.Errorf("fail to reply to client %v", err)
-		}
-		e.command.RPCMessage = nil
-	}
+	//if e.command.RPCMessage != nil && m.Ballot.ID() != fop.ID() {
+	//	failResp := paxi.CommandReply{
+	//		OK:     false,
+	//		Ballot: fop.ballot.String(),
+	//	}
+	//	err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
+	//	if err != nil {
+	//		log.Errorf("fail to reply to client %v", err)
+	//	}
+	//	e.command.RPCMessage = nil
+	//}
 
 	fop.exec()
 }
@@ -648,15 +646,15 @@ func (fop *FastOPaxos) exec() {
 			break
 		}
 
-		cmdReply := fop.execCommand(e.command.BytesCommand, e)
-
-		if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-			err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
-			if err != nil {
-				log.Errorf("failed to send CommandReply %s", err)
-			}
-			e.command.RPCMessage = nil
-		}
+		//cmdReply := fop.execCommand(e.command.BytesCommand, e)
+		//
+		//if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
+		//	err := e.command.RPCMessage.SendBytesReply(cmdReply.Serialize())
+		//	if err != nil {
+		//		log.Errorf("failed to send CommandReply %s", err)
+		//	}
+		//	e.command.RPCMessage = nil
+		//}
 
 		// clean the slot after the command is executed
 		//delete(fop.log, fop.execute)
@@ -706,13 +704,13 @@ func (fop *FastOPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.Co
 }
 
 func (fop *FastOPaxos) sendFailureResponse(e *entry) {
-	failResp := paxi.CommandReply{
-		OK:     false,
-		Ballot: fop.ballot.String(),
-	}
-	err := e.command.RPCMessage.SendBytesReply(failResp.Marshal())
-	if err != nil {
-		log.Errorf("fail to reply to client %v", err)
-	}
-	e.command.RPCMessage = nil
+	//failResp := &paxi.CommandReply{
+	//	OK:     false,
+	//	Ballot: fop.ballot.String(),
+	//}
+	//err := e.command.Reply(failResp)
+	//if err != nil {
+	//	log.Errorf("fail to reply to client %v", err)
+	//}
+	//e.command.ClientCommand = nil
 }

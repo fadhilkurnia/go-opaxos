@@ -73,12 +73,6 @@ func (q *Quorum) FastQuorum() bool {
 	return q.size >= config.n*3/4
 }
 
-func (q *Quorum) MajorityWithTIntersection(t int) bool {
-	// TODO: relax the assumption, currently we are assuming 1.1 is proposer/leader
-	// and the other replicas are acceptor.
-	return q.size >= (config.n+t)/2
-}
-
 func (q *Quorum) CardinalityBasedQuorum(c int) bool {
 	return q.size >= c
 }

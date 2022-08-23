@@ -15,10 +15,9 @@ import (
 )
 
 var isPprof = flag.Bool("pprof", false, "activate pprof server")
-var ConnType = flag.String("connection", "udp", "connection used between client and node, options: tcp, http, udp")
 
 // Node is the primary access point for every replica
-// it includes networking, state machine and RESTful API server
+// it includes networking, state machine and server
 type Node interface {
 	Socket
 	Database
@@ -125,8 +124,12 @@ func (n *node) Run() {
 	}
 	if *ClientType == "http" {
 		n.http()
+	} else if *ClientType == "unix" {
+		n.runUnixServer()
+	} else if *ClientType == "tcp" {
+		n.runTCPServer()
 	} else {
-		n.rpc()
+		log.Fatalf("unknown client-node connection type: %s", *ClientType)
 	}
 }
 

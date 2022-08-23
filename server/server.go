@@ -8,20 +8,11 @@ import (
 	"sync"
 
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/abd"
-	"github.com/ailidani/paxi/blockchain"
-	"github.com/ailidani/paxi/chain"
-	"github.com/ailidani/paxi/dynamo"
-	"github.com/ailidani/paxi/epaxos"
-	"github.com/ailidani/paxi/hpaxos"
 	//"github.com/ailidani/paxi/kpaxos"
 	"github.com/ailidani/paxi/log"
 	//"github.com/ailidani/paxi/m2paxos"
 	"github.com/ailidani/paxi/paxos"
-	//"github.com/ailidani/paxi/paxos_group"
-	"github.com/ailidani/paxi/sdpaxos"
-	"github.com/ailidani/paxi/vpaxos"
-	"github.com/ailidani/paxi/wankeeper"
+
 	//"github.com/ailidani/paxi/wpaxos"
 )
 
@@ -44,25 +35,25 @@ func replica(id paxi.ID) {
 		paxos.NewReplica(id).RunWithChannel()
 
 	case "epaxos":
-		epaxos.NewReplica(id).Run()
+		panic("epaxos is unimplemented")
 
 	case "sdpaxos":
-		sdpaxos.NewReplica(id).Run()
+		panic("sdpaxos is unimplemented")
 
 	case "wpaxos":
 		panic("wpaxos is unimplemented")
 
 	case "abd":
-		abd.NewReplica(id).Run()
+		panic("abd is unimplemented")
 
 	case "chain":
-		chain.NewReplica(id).Run()
+		panic("chain_replication is unimplemented")
 
 	case "vpaxos":
-		vpaxos.NewReplica(id).Run()
+		panic("vpaxos is unimplemented")
 
 	case "wankeeper":
-		wankeeper.NewReplica(id).Run()
+		panic("wankeeper is unimplemented")
 
 	case "kpaxos":
 		panic("kpaxos is unimplemented")
@@ -71,16 +62,16 @@ func replica(id paxi.ID) {
 		panic("paxos_groups is unimplemented")
 
 	case "dynamo":
-		dynamo.NewReplica(id).Run()
+		panic("dynamo is unimplemented")
 
 	case "blockchain":
-		blockchain.NewMiner(id).Run()
+		panic("blockchain is unimplemented")
 
 	case "m2paxos":
 		panic("m2paxos is unimplemented")
 
 	case "hpaxos":
-		hpaxos.NewReplica(id).Run()
+		panic("hpaxos is unimplemented")
 
 	case "opaxos":
 		opaxos.NewReplica(id).RunWithWorker()

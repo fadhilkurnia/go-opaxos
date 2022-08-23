@@ -1,7 +1,6 @@
 package paxi
 
 import (
-	"encoding/binary"
 	"github.com/ailidani/paxi/lib"
 	"math"
 	"math/rand"
@@ -11,106 +10,19 @@ import (
 	"github.com/ailidani/paxi/log"
 )
 
-// DB is general interface implemented by client to call client library
-// used for benchmark purposes.
-type DB interface {
-	Init() error
-
-	// Read Write Write2 and Write3 are synchronous operation (blocking)
-	Read(key int) (int, error)
-	Write(key, value int) error
-	Write2(key, value int) (interface{}, error)
-	Write3(key int, value []byte) (interface{}, error)
-
-	Stop() error
-}
-
-type DBClientFactory interface {
-	Create() (DBClient, error)
-}
-
-type NonBlockingDBClientFactory interface {
-	Create() (NonBlockingDBClient, error)
-}
-
-type DBClient interface {
-	Init() error
-	Stop() error
-
-	// AsyncRead and AsyncWrite are asynchronous operation (non-blocking).
-	// they are used to saturate the server with as many request as possible with limited connection.
-	AsyncRead(key []byte, callback func(*CommandReply))
-	AsyncWrite(key, value []byte, callback func(*CommandReply))
-
-	// Read and Write are the typical blocking operation
-	Read(key []byte) (interface{}, interface{}, error) // return value, metadata, and error
-	Write(key, value []byte) (interface{}, error)      // return metadata and error
-}
-
-// Bconfig holds all benchmark configuration
-type Bconfig struct {
-	T                    int     // total number of running time in seconds, using N if 0
-	N                    int     // total number of requests
-	K                    int     // accessed key space [0,K)
-	W                    float64 // write ratio
-	Size                 int     // the size of value written in bytes, the key is always a 4 bytes integer
-	Throttle             int     // requests per second throttle, unused if 0. the rate of simulated request in request/second for each client (λ in poisson distribution)
-	Concurrency          int     // number of concurrent clients
-	Distribution         string  // key-access distribution: order, uniform, conflict, normal, zipfian, exponential.
-	LinearizabilityCheck bool    // run linearizability checker at the end of benchmark
-	Rounds               int     // (unimplemented) repeat in many rounds sequentially
-
-	// conflict distribution
-	Conflicts int // percentage of conflicting keys [1,100]
-	Min       int // min key
-
-	// normal distribution
-	Mu    float64 // mu of normal distribution
-	Sigma float64 // sigma of normal distribution
-	Move  bool    // moving average (mu) of normal distribution
-	Speed int     // moving speed in milliseconds intervals per key
-
-	// zipfian distribution
-	ZipfianS float64 // zipfian s parameter
-	ZipfianV float64 // zipfian v parameter
-
-	// exponential distribution
-	Lambda float64 // rate parameter
-}
-
-// DefaultBConfig returns a default benchmark config
-func DefaultBConfig() Bconfig {
-	return Bconfig{
-		T:                    60,
-		N:                    0,
-		K:                    1000,
-		W:                    0.5,
-		Size:                 50,
-		Throttle:             0,
-		Concurrency:          1,
-		Distribution:         "uniform",
-		LinearizabilityCheck: true,
-		Conflicts:            100,
-		Min:                  0,
-		Mu:                   0,
-		Sigma:                60,
-		Move:                 false,
-		Speed:                500,
-		ZipfianS:             2,
-		ZipfianV:             1,
-		Lambda:               0.01,
-	}
+type BenchmarkClientCreator interface {
+	CreateClient() (Client, error)
+	CreateAsyncClient() (AsyncClient, error)
+	CreateCallbackClient() (AsyncCallbackClient, error)
 }
 
 // Benchmark is benchmarking tool that generates workload and collects operation history and latency
 type Benchmark struct {
-	Bconfig
+	BenchmarkConfig
+	ClientCreator BenchmarkClientCreator
+	History       *History
 
-	ClientFactory   DBClientFactory            // used to generate multiple client, if supported
-	NBClientFactory NonBlockingDBClientFactory // used to generate multiple client, if supported
-	History         *History
-
-	db DB // (will be deprecated soon)
+	db DB // TODO: deprecate this, by default we do the benchmark in async with AsyncClient interface
 
 	latency    []time.Duration // latency per operation from all clients
 	encodeTime []time.Duration // encoding time
@@ -119,10 +31,10 @@ type Benchmark struct {
 	wait sync.WaitGroup // waiting for all generated keys to complete
 }
 
-func NewBenchmark(db DB) *Benchmark {
+func NewBenchmark() *Benchmark {
 	b := new(Benchmark)
-	b.db = db
-	b.Bconfig = config.Benchmark
+	//b.db = db
+	b.BenchmarkConfig = config.Benchmark
 	b.History = NewHistory()
 	if b.T == 0 && b.N == 0 {
 		log.Fatal("please set benchmark time T or number of operation N")
@@ -132,8 +44,8 @@ func NewBenchmark(db DB) *Benchmark {
 
 // Load will create all K keys to DB
 func (b *Benchmark) Load() {
-	latencies := make(chan time.Duration, b.Bconfig.K)
-	dbClient, err := b.ClientFactory.Create()
+	latencies := make(chan time.Duration, b.BenchmarkConfig.K)
+	dbClient, err := b.ClientCreator.CreateCallbackClient()
 	if err != nil {
 		log.Fatal("failed to initialize db client")
 	}
@@ -145,20 +57,18 @@ func (b *Benchmark) Load() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for j := b.Min; j < b.Bconfig.Min+b.Bconfig.K; j++ {
+		for j := b.Min; j < b.BenchmarkConfig.Min+b.BenchmarkConfig.K; j++ {
 			b.latency = append(b.latency, <-latencies)
 		}
 	}()
 
 	// issue the write request
-	for j := b.Min; j < b.Bconfig.Min+b.Bconfig.K; j++ {
-		key := make([]byte, 4)
-		binary.BigEndian.PutUint32(key, uint32(j))
+	for j := b.Min; j < b.BenchmarkConfig.Min+b.BenchmarkConfig.K; j++ {
 		val := make([]byte, 100)
 		rand.Read(val)
 
 		reqStartTime := time.Now()
-		dbClient.AsyncWrite(key, val, func(reply *CommandReply) {
+		dbClient.Put(Key(j), val, func(reply *CommandReply) {
 			if reply.OK {
 				latencies <- time.Since(reqStartTime)
 			} else {
@@ -188,6 +98,11 @@ func (b *Benchmark) Run() {
 	if *ClientAction == "callback" {
 		*ClientIsStateful = true
 		b.RunCallbackClient()
+		return
+	}
+	if *ClientAction == "throughput_collector" {
+		*ClientIsStateful = false
+		b.RunThroughputCollectorClients()
 		return
 	}
 
@@ -283,13 +198,13 @@ func (b *Benchmark) RunCallbackClient() {
 
 	clientWaiter := sync.WaitGroup{}
 
-	for i := 0; i < b.Bconfig.Concurrency; i++ {
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
 		var limiter *lib.Limiter
 		if b.Throttle > 0 {
 			limiter = lib.NewLimiter(b.Throttle)
 		}
 
-		dbClient, err := b.ClientFactory.Create()
+		dbClient, err := b.ClientCreator.CreateCallbackClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
@@ -298,7 +213,7 @@ func (b *Benchmark) RunCallbackClient() {
 
 		// run each client in a separate goroutine
 		clientWaiter.Add(1)
-		go func(dbClient DBClient, kg *KeyGenerator, rl *lib.Limiter) {
+		go func(dbClient AsyncCallbackClient, kg *KeyGenerator, rl *lib.Limiter) {
 			defer clientWaiter.Done()
 
 			isClientFinished := false
@@ -315,11 +230,8 @@ func (b *Benchmark) RunCallbackClient() {
 			requestWaiter := sync.WaitGroup{}
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 4+b.Size)
-				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
-				rand.Read(keyValBuff[4:])
-				keyBuff := keyValBuff[:4]
-				value := keyValBuff[4:]
+				value := make([]byte, b.Size)
+				rand.Read(value)
 
 				op := new(operation)
 				requestWaiter.Add(1)
@@ -328,7 +240,7 @@ func (b *Benchmark) RunCallbackClient() {
 				if rand.Float64() < b.W {
 					reqStartTime := time.Now()
 
-					dbClient.AsyncWrite(keyBuff, value, func(reply *CommandReply) {
+					dbClient.Put(Key(key), value, func(reply *CommandReply) {
 						reqEndTime := time.Now()
 
 						latencies <- reqEndTime.Sub(reqStartTime)
@@ -348,7 +260,7 @@ func (b *Benchmark) RunCallbackClient() {
 
 				} else { // issuing read request
 					reqStartTime := time.Now()
-					dbClient.AsyncRead(keyBuff, func(reply *CommandReply) {
+					dbClient.Get(Key(key), func(reply *CommandReply) {
 						reqEndTime := time.Now()
 
 						latencies <- reqEndTime.Sub(reqStartTime)
@@ -442,13 +354,13 @@ func (b *Benchmark) RunPipelineClient() {
 
 	clientWaiter := sync.WaitGroup{}
 	clientID := 0
-	for i := 0; i < b.Bconfig.Concurrency; i++ {
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
 		var limiter *lib.Limiter
 		if b.Throttle > 0 {
 			limiter = lib.NewLimiter(b.Throttle)
 		}
 
-		dbClient, err := b.NBClientFactory.Create()
+		dbClient, err := b.ClientCreator.CreateAsyncClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
@@ -458,7 +370,7 @@ func (b *Benchmark) RunPipelineClient() {
 		// run each client in a separate goroutine
 		clientID++
 		clientWaiter.Add(1)
-		go func(clientID int, dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
+		go func(clientID int, dbClient AsyncClient, kg *KeyGenerator, rl *lib.Limiter) {
 			defer clientWaiter.Done()
 
 			isClientFinished := false
@@ -478,7 +390,7 @@ func (b *Benchmark) RunPipelineClient() {
 			clientFinishFlag := make(chan int)
 			go func() {
 				defer requestWaiter.Done()
-				receiverCh := dbClient.GetReceiverChannel()
+				receiverCh := dbClient.GetResponseChannel()
 				totalMsgSent := -1
 				respCounter := 0
 
@@ -495,7 +407,7 @@ func (b *Benchmark) RunPipelineClient() {
 
 						// empty the receiver channel
 						nResp := len(receiverCh)
-						for nResp>0 {
+						for nResp > 0 {
 							nResp--
 							resp = <-receiverCh
 							latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
@@ -518,11 +430,8 @@ func (b *Benchmark) RunPipelineClient() {
 			reqCounter := 0
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 4+b.Size)
-				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
-				rand.Read(keyValBuff[4:])
-				keyBuff := keyValBuff[:4]
-				value := keyValBuff[4:]
+				value := make([]byte, b.Size)
+				rand.Read(value)
 
 				// issuing write request
 				if rand.Float64() < b.W {
@@ -530,21 +439,19 @@ func (b *Benchmark) RunPipelineClient() {
 					// without waiting for the response
 					now := time.Now()
 					log.Debugf("sending write command at %v", now.UnixNano())
-					clientErr = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(&DBCommandPut{
 						CommandID: uint32(reqCounter),
-						Operation: OP_WRITE,
-						Key:       keyBuff,
-						Value:     value,
 						SentAt:    now.UnixNano(),
+						Key:       Key(key),
+						Value:     value,
 					})
 				} else { // issuing read request
 					now := time.Now()
 					log.Debugf("sending read command at %v", now.UnixNano())
-					clientErr = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(&DBCommandGet{
 						CommandID: uint32(reqCounter),
-						Operation: OP_READ,
-						Key:       keyBuff,
 						SentAt:    now.UnixNano(),
+						Key:       Key(key),
 					})
 				}
 
@@ -628,13 +535,13 @@ func (b *Benchmark) RunBlockingClient() {
 
 	clientWaiter := sync.WaitGroup{}
 	clientID := 0
-	for i := 0; i < b.Bconfig.Concurrency; i++ {
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
 		var limiter *lib.Limiter
 		if b.Throttle > 0 {
 			limiter = lib.NewLimiter(b.Throttle)
 		}
 
-		dbClient, err := b.NBClientFactory.Create()
+		dbClient, err := b.ClientCreator.CreateAsyncClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
@@ -644,13 +551,13 @@ func (b *Benchmark) RunBlockingClient() {
 		// run each client in a separate goroutine
 		clientID++
 		clientWaiter.Add(1)
-		go func(clientID int, dbClient NonBlockingDBClient, kg *KeyGenerator, rl *lib.Limiter) {
+		go func(clientID int, dbClient AsyncClient, kg *KeyGenerator, rl *lib.Limiter) {
 			defer clientWaiter.Done()
 
 			var clientErr error = nil
 			isClientFinished := false
 			timesUpFlag := make(chan bool)
-			receiverCh := dbClient.GetReceiverChannel()
+			receiverCh := dbClient.GetResponseChannel()
 
 			if b.T != 0 {
 				go func() {
@@ -664,11 +571,8 @@ func (b *Benchmark) RunBlockingClient() {
 			reqCounter := 0
 			for !isClientFinished {
 				key := kg.next()
-				keyValBuff := make([]byte, 4+b.Size)
-				binary.BigEndian.PutUint32(keyValBuff[:4], uint32(key))
-				rand.Read(keyValBuff[4:])
-				keyBuff := keyValBuff[:4]
-				value := keyValBuff[4:]
+				value := make([]byte, b.Size)
+				rand.Read(value)
 
 				// issuing write request
 				if rand.Float64() < b.W {
@@ -676,21 +580,19 @@ func (b *Benchmark) RunBlockingClient() {
 					// without waiting for the response
 					now := time.Now()
 					log.Debugf("sending write command at %v", now.UnixNano())
-					clientErr = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(&DBCommandPut{
 						CommandID: uint32(reqCounter),
-						Operation: OP_WRITE,
-						Key:       keyBuff,
-						Value:     value,
 						SentAt:    now.UnixNano(),
+						Key:       Key(key),
+						Value:     value,
 					})
 				} else { // issuing read request
 					now := time.Now()
 					log.Debugf("sending read command at %v", now.UnixNano())
-					clientErr = dbClient.SendCommand(GenericCommand{
+					clientErr = dbClient.SendCommand(&DBCommandGet{
 						CommandID: uint32(reqCounter),
-						Operation: OP_READ,
-						Key:       keyBuff,
 						SentAt:    now.UnixNano(),
+						Key:       Key(key),
 					})
 				}
 
@@ -798,59 +700,160 @@ func (b *Benchmark) collect(latencies <-chan time.Duration) {
 	}
 }
 
-type KeyGenerator struct {
-	bench   *Benchmark
-	zipf    *rand.Zipf
-	counter int
-}
+// RunThroughputCollectorClients runs clients that periodically gather the throughput
+// every 1 second, then dump the result in an external file. The implementation
+// is based on the RunBlockingClient().
+func (b *Benchmark) RunThroughputCollectorClients() {
+	latencies := make(chan time.Duration, 100_000)
+	b.startTime = time.Now()
 
-func NewKeyGenerator(b *Benchmark) *KeyGenerator {
-	rand.Seed(time.Now().UTC().UnixNano())
-	r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-	zipf := rand.NewZipf(r, b.Bconfig.ZipfianS, b.Bconfig.ZipfianV, uint64(b.Bconfig.K))
-	return &KeyGenerator{
-		bench:   b,
-		zipf:    zipf,
-		counter: 0,
+	// gather the latencies from all the clients
+	// collect the number of response every 1 second (throughput)
+	latWriterWaiter := sync.WaitGroup{}
+	latWriterWaiter.Add(1)
+	go func() {
+		defer latWriterWaiter.Done()
+		secondID := 0
+		for {
+			time.Sleep(1 * time.Second)
+			numResp := len(latencies)
+			log.Infof("At second-%d, throughput: %d reqs/s", secondID, numResp)
+			for numResp > 0 {
+				respLat := <-latencies
+				b.latency = append(b.latency, respLat)
+				numResp--
+			}
+
+			// exit the loop if the latencies channel is already closed
+			respLat, more := <-latencies
+			if more {
+				b.latency = append(b.latency, respLat)
+			} else {
+				break
+			}
+			secondID++
+		}
+	}()
+
+	// run all the clients, set the number of clients from "concurrency"
+	// in the configuration file
+	clientWaiter := sync.WaitGroup{}
+	for cid := 0; cid < b.BenchmarkConfig.Concurrency; cid++ {
+		var limiter *lib.Limiter
+		if b.Throttle > 0 {
+			limiter = lib.NewLimiter(b.Throttle)
+		}
+
+		db, err := b.ClientCreator.CreateAsyncClient()
+		if err != nil {
+			log.Fatalf("failed to initialize db client: %s", err.Error())
+		}
+
+		kg := NewKeyGenerator(b)
+
+		// run clients, each in a separate goroutines
+		clientWaiter.Add(1)
+		go func(clientID int, dbClient AsyncClient, keyGenerator *KeyGenerator, rateLimiter *lib.Limiter) {
+			defer clientWaiter.Done()
+
+			var clientErr error = nil
+			isClientFinished := false
+			timesUpFlag := make(chan bool)
+			receiverCh := dbClient.GetResponseChannel()
+
+			if b.T != 0 {
+				go func() {
+					time.Sleep(time.Duration(b.T) * time.Second)
+					timesUpFlag <- true
+				}()
+			}
+
+			// send command to server until finished
+			clientStartTime := time.Now()
+			reqCounter := 0
+			for !isClientFinished {
+				key := kg.next()
+				value := make([]byte, b.Size)
+				rand.Read(value)
+
+				// issuing write request
+				if rand.Float64() < b.W {
+					// SendCommand is a non-blocking method, it returns immediately
+					// without waiting for the response
+					now := time.Now()
+					log.Debugf("sending write command at %v", now.UnixNano())
+					clientErr = dbClient.SendCommand(&DBCommandPut{
+						CommandID: uint32(reqCounter),
+						SentAt:    now.UnixNano(),
+						Key:       Key(key),
+						Value:     value,
+					})
+				} else { // issuing read request
+					now := time.Now()
+					log.Debugf("sending read command at %v", now.UnixNano())
+					clientErr = dbClient.SendCommand(&DBCommandGet{
+						CommandID: uint32(reqCounter),
+						SentAt:    now.UnixNano(),
+						Key:       Key(key),
+					})
+				}
+
+				if clientErr == nil {
+					reqCounter++
+				} else {
+					log.Errorf("failed to send command %v", clientErr)
+				}
+
+				// wait for the response
+				resp := <-receiverCh
+				if resp.OK {
+					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+				} else {
+					log.Errorf("receive non-ok response")
+				}
+
+				// stop if this client already send N requests
+				if b.N > 0 && reqCounter == b.N {
+					isClientFinished = true
+					break
+				}
+
+				// stop if the timer is up, non-blocking checking
+				if b.T != 0 {
+					select {
+					case _ = <-timesUpFlag:
+						isClientFinished = true
+						continue
+					default:
+					}
+				}
+
+				// wait before issuing next request, if limiter is active
+				if limiter != nil {
+					limiter.Wait()
+				}
+			}
+
+			clientEndTime := time.Now()
+			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
+			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
+
+		}(cid, db, kg, limiter)
 	}
-}
 
-func (k *KeyGenerator) next() int {
-	var key int
-	switch k.bench.Distribution {
-	case "order":
-		k.counter = (k.counter + 1) % k.bench.K
-		key = k.counter + k.bench.Min
+	clientWaiter.Wait()    // wait until all the clients finish accepting responses
+	close(latencies)       // closing the latencies channel
+	latWriterWaiter.Wait() // wait until all latencies are recorded in b
 
-	case "uniform":
-		key = rand.Intn(k.bench.K) + k.bench.Min
+	t := time.Now().Sub(b.startTime)
 
-	case "conflict":
-		if rand.Intn(100) < k.bench.Conflicts {
-			key = 0
-		} else {
-			k.counter = (k.counter + 1) % k.bench.K
-			key = k.counter + k.bench.Min
-		}
+	stat := Statistic(b.latency)
+	log.Infof("Concurrency = %d", b.Concurrency)
+	log.Infof("Write Ratio = %f", b.W)
+	log.Infof("Number of Keys = %d", b.K)
+	log.Infof("Benchmark Time = %v\n", t)
+	log.Infof("Throughput = %f\n", float64(len(b.latency))/t.Seconds())
+	log.Info(stat)
 
-	case "normal":
-		key = int(rand.NormFloat64()*k.bench.Sigma + k.bench.Mu)
-		for key < 0 {
-			key += k.bench.K
-		}
-		for key > k.bench.K {
-			key -= k.bench.K
-		}
-
-	case "zipfan":
-		key = int(k.zipf.Uint64())
-
-	case "exponential":
-		key = int(rand.ExpFloat64() / k.bench.Lambda)
-
-	default:
-		log.Fatalf("unknown distribution %s", k.bench.Distribution)
-	}
-
-	return key
+	_ = stat.WriteFile("latency")
 }

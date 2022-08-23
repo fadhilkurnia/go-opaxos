@@ -101,9 +101,10 @@ func (s *socket) Send(to ID, m interface{}) {
 			return
 		}
 		t = NewTransport(address)
-		err := Retry(t.Dial, 100, time.Duration(50)*time.Millisecond)
+		err := Retry(t.Dial, 3, time.Duration(50)*time.Millisecond)
 		if err != nil {
-			panic(err)
+			log.Errorf("failed to make connection to %s: %v", to, err)
+			return
 		}
 		s.lock.Lock()
 		s.nodes[to] = t
@@ -162,7 +163,7 @@ func (s *socket) MulticastQuorum(quorum int, m interface{}) {
 }
 
 func (s *socket) MulticastUniqueMessage(ms []interface{}) {
-	log.Debugf("node %s unique-broadcasting message %+v", s.id, ms)
+	log.Debugf("node %s unique-broadcasting messages", s.id)
 	if len(ms) < len(s.addresses)-1 {
 		log.Fatalf("need more message to be sent to the peers, expecting %d messages but only get %d",
 			len(s.addresses)-1, len(ms))

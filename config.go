@@ -9,8 +9,10 @@ import (
 	"github.com/ailidani/paxi/log"
 )
 
-var configFile = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
+var ConfigFile = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
 var GatherSecretShareTime = flag.Bool("sstimeon", false, "Whether the server need to return the secret-sharing encoding time or not")
+
+const MaxBatchSize = 1
 
 // Config contains every system configuration
 type Config struct {
@@ -25,11 +27,11 @@ type Config struct {
 	Policy    string  `json:"policy"`    // leader change policy {consecutive, majority}
 	Threshold float64 `json:"threshold"` // threshold for policy in WPaxos {n consecutive or time interval in ms}
 
-	Thrifty        bool    `json:"thrifty"`          // only send messages to a quorum
-	BufferSize     int     `json:"buffer_size"`      // buffer size for maps
-	ChanBufferSize int     `json:"chan_buffer_size"` // buffer size for channels
-	MultiVersion   bool    `json:"multiversion"`     // create multi-version database
-	Benchmark      Bconfig `json:"benchmark"`        // benchmark configuration
+	Thrifty        bool            `json:"thrifty"`          // only send messages to a quorum
+	BufferSize     int             `json:"buffer_size"`      // buffer size for maps
+	ChanBufferSize int             `json:"chan_buffer_size"` // buffer size for channels
+	MultiVersion   bool            `json:"multiversion"`     // create multi-version database
+	Benchmark      BenchmarkConfig `json:"benchmark"`        // benchmark configuration
 
 	// for future implementation
 	// Batching bool `json:"batching"`
@@ -90,20 +92,20 @@ func (c Config) Z() int {
 	return c.z
 }
 
-func (c Config) GetRPCHost(id ID) string {
+func (c Config) GetPublicHostAddress(id ID) string {
 	fullAddress := c.PublicAddrs[id]
 	address, err := url.Parse(fullAddress)
 	if err != nil {
-		log.Fatalf("failed to parse server address from config file: %s", err)
+		log.Fatalf("failed to parse public host address from config file: %s", err)
 	}
 	return address.Host
 }
 
-func (c Config) GetRPCPort(id ID) string {
+func (c Config) GetPublicHostPort(id ID) string {
 	fullAddress := c.PublicAddrs[id]
 	address, err := url.Parse(fullAddress)
 	if err != nil {
-		log.Fatalf("failed to parse server address from config file: %s", err)
+		log.Fatalf("failed to parse public host port from config file: %s", err)
 	}
 	return address.Port()
 }
@@ -120,7 +122,7 @@ func (c Config) String() string {
 
 // Load loads configuration from config file in JSON format
 func (c *Config) Load() {
-	file, err := os.Open(*configFile)
+	file, err := os.Open(*ConfigFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -140,7 +142,7 @@ func (c *Config) Load() {
 
 // Save saves configuration to file in JSON format
 func (c Config) Save() error {
-	file, err := os.Create(*configFile)
+	file, err := os.Create(*ConfigFile)
 	if err != nil {
 		return err
 	}

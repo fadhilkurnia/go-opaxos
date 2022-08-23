@@ -18,7 +18,7 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P2a{}, r.EnqueueProtocolMessages)
 	r.Register(P2b{}, r.EnqueueProtocolMessages)
 	r.Register(P3{}, r.EnqueueProtocolMessages)
-	r.Register(&paxi.ClientBytesCommand{}, r.EnqueueClientRequests)
+	r.Register(&paxi.ClientCommand{}, r.EnqueueClientRequests)
 
 	return r
 }
@@ -28,7 +28,7 @@ func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
 	r.FastOPaxos.protocolMessages <- pmsg
 }
 
-func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientBytesCommand) {
+func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientCommand) {
 	log.Debugf("enqueuing client request: %v", ccmd)
 	r.FastOPaxos.rawCommands <- ccmd
 }

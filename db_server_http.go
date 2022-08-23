@@ -3,6 +3,8 @@ package paxi
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ailidani/paxi/log"
+	"github.com/valyala/fasthttp"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -10,20 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/ailidani/paxi/log"
-	"github.com/valyala/fasthttp"
 )
 
-// http request header names
-const (
-	HTTPClientID  = "Id"
-	HTTPCommandID = "Cid"
-	HTTPTimestamp = "Timestamp"
-	HTTPNodeID    = "Id"
-)
-
-// serve serves the http REST API request from clients
+// http serves the http REST API requests from clients
 func (n *node) http() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", n.handleRoot)
@@ -349,8 +340,9 @@ func (n *node) handleDrop(w http.ResponseWriter, r *http.Request) {
 	t, err := strconv.Atoi(r.URL.Query().Get("t"))
 	if err != nil {
 		log.Error(err)
-		http.Error(w, "invalide time", http.StatusBadRequest)
+		http.Error(w, "invalid time", http.StatusBadRequest)
 		return
 	}
 	n.Drop(ID(id), t)
 }
+

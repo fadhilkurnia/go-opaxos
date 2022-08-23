@@ -4,15 +4,12 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/ailidani/paxi/log"
-	"github.com/ailidani/paxi/opaxos"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/ailidani/paxi/chain"
-
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/opaxos"
 	"github.com/ailidani/paxi/paxos"
 )
 
@@ -44,24 +41,22 @@ func main() {
 	admin = paxi.NewHTTPClient(paxi.ID(*id))
 
 	switch *algorithm {
-	case "paxos":
+	case "xpaxos":
 		client = paxos.NewClient(paxi.ID(*id))
 
-	case "chain":
-		client = chain.NewClient()
-
-	case "opaxos":
+	case "xopaxos":
 		client = opaxos.NewClient(paxi.ID(*id))
 
-	case "experiment":
-		var err error
-		client, err = paxi.NewRPClient(paxi.ID(*id))
-		if err != nil {
-			log.Fatalf("failed ot initialize client %s", err)
-		}
-
 	default:
-		client = paxi.NewUDPClient(paxi.ID(*id))
+		if *paxi.ClientType == "unix" {
+			client = paxi.NewUnixClient(paxi.ID(*id))
+			admin = client.(paxi.AdminClient)
+		} else if *paxi.ClientType == "tcp" {
+			panic("unimplemented")
+		} else if *paxi.ClientType == "http" {
+			client = paxi.NewHTTPClient(paxi.ID(*id))
+			admin = client.(paxi.AdminClient)
+		}
 	}
 
 	if len(flag.Args()) > 0 {

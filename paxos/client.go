@@ -7,6 +7,8 @@ import (
 	"github.com/ailidani/paxi/log"
 )
 
+// TODO: deprecate this OR modify
+
 // Client overwrites read operation for Paxos
 type Client struct {
 	*paxi.HTTPClient

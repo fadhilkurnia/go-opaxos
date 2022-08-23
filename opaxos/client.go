@@ -14,6 +14,8 @@ import (
 	"net/http/httputil"
 )
 
+// TODO: deprecate this
+
 // Client overwrites read and write operation with generic request
 // all requests are sent as POST request to http://ip:port/b with
 // command as []byte in the http body
@@ -101,7 +103,7 @@ func (c *Client) makeGenericRESTCall(bodyRaw []byte) ([]byte, error) {
 	}
 	httpReq.Header.Set(paxi.HTTPClientID, string(c.ID))
 
-	rep, err := c.Client.Do(httpReq)
+	rep, err := c.NativeHTTPClient.Do(httpReq)
 	if err != nil {
 		log.Error(err)
 		return nil, err

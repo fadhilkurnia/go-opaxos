@@ -280,7 +280,7 @@ func (fp *FastPaxos) handleP2b(m P2b) {
 				OK:     false,
 				Ballot: fp.ballot.String(),
 			}
-			err := e.command.RPCMessage.SendBytesReply(failResp.Marshal())
+			err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 			if err != nil {
 				log.Errorf("fail to reply to client %v", err)
 			}
@@ -371,7 +371,7 @@ func (fp *FastPaxos) handleFastP2b(m P2b) {
 				OK:     false,
 				Ballot: fp.ballot.String(),
 			}
-			err := e.command.RPCMessage.SendBytesReply(failResp.Marshal())
+			err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 			if err != nil {
 				log.Errorf("fail to reply to client %v", err)
 			}
@@ -410,7 +410,7 @@ func (fp *FastPaxos) handleP3(m P3) {
 			OK:     false,
 			Ballot: fp.ballot.String(),
 		}
-		err := e.command.RPCMessage.SendBytesReply(failResp.Marshal())
+		err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
 		if err != nil {
 			log.Errorf("fail to reply to client %v", err)
 		}
@@ -430,7 +430,7 @@ func (fp *FastPaxos) exec() {
 		cmdReply := fp.execCommand(e.command.BytesCommand, e)
 
 		if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-			err := e.command.RPCMessage.SendBytesReply(cmdReply.Marshal())
+			err := e.command.RPCMessage.SendBytesReply(cmdReply.Serialize())
 			if err != nil {
 				log.Errorf("failed to send CommandReply %s", err)
 			}

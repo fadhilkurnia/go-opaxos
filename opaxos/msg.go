@@ -32,7 +32,8 @@ func (m P1a) String() string {
 }
 
 // P1b response of prepare (promise message),
-// sent from acceptor to proposer
+// sent from acceptor to proposer. If the P1b message comes from
+// a trusted node, the Log contains clear command, not secret-shared command.
 type P1b struct {
 	Ballot paxi.Ballot          // sender leader's node-id
 	ID     paxi.ID              // sender node-id
@@ -43,20 +44,19 @@ type P1b struct {
 type CommandShare struct {
 	Ballot      paxi.Ballot   // the accepted ballot number
 	OriBallot   paxi.Ballot   // the original ballot-number
-	SharesBatch []SecretShare // the secret-share of value being proposed
-	ID          paxi.ID
+	SharesBatch []SecretShare // the secret-share of value being proposed, in a batch
+	ID          paxi.ID       // the sender's node ID
+}
 
-	// TODO: remove this, now they are used for debugging
-	History []string
-	ValID   string
+func (cs CommandShare) String() string {
+	return fmt.Sprintf("Share{bacc=%s bori=%s val=%x}", cs.Ballot, cs.OriBallot, cs.SharesBatch)
 }
 
 func (m P1b) String() string {
-	return fmt.Sprintf("P1b {b=%v id=%s log=%v}", m.Ballot, m.ID, m.Log)
+	return fmt.Sprintf("P1b{b=%v id=%s log=%v}", m.Ballot, m.ID, m.Log)
 }
 
-// P2a propose message from proposer to acceptor in Phase 2
-// accept message.
+// P2a propose message from proposer to acceptor in Phase 2 (accept message)
 type P2a struct {
 	Ballot      paxi.Ballot   // the proposer's ballot-number
 	Slot        int           // the slot to be filled
@@ -71,11 +71,8 @@ func (m P2a) String() string {
 // P2b response of propose message, sent from acceptor to proposer
 type P2b struct {
 	Ballot paxi.Ballot // the highest ballot-number stored in the acceptor
-	Slots  []int       // a batch of slot number being accepted/rejected
-	Acks   []bool      // the associated acknowledgements for each slot. true: accepted, false: rejected.
-
-	Slot int
-	ID   paxi.ID // the acceptor's id
+	ID     paxi.ID     // the acceptor's id
+	Slot   int
 }
 
 func (m P2b) String() string {
@@ -95,16 +92,10 @@ func (m P3) String() string {
 	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
 }
 
-type SSBytesRequest struct {
-	*paxi.BytesRequest
-	ssTime     int64
-	ssCommands [][]byte
-}
-
 type SecretShare []byte
 
 type SecretSharedCommand struct {
-	*paxi.ClientBytesCommand               // pointer to the client's command
-	SSTime                   time.Duration // time taken to secret-share the command
-	Shares                   []SecretShare // the secret-shares of the command
+	*paxi.ClientCommand               // pointer to the client's command
+	SSTime              time.Duration // time taken to secret-share the command
+	Shares              []SecretShare // the N secret-shares of the command
 }

@@ -6,8 +6,8 @@ import (
 )
 
 const ProtocolName = "opaxos"
-const AlgShamir = "shamir"
-const AlgSSMS = "ssms"
+const SSAlgorithmShamir = "shamir"
+const SSAlgorithmSSMS = "ssms"
 
 type ProtocolConfig struct {
 	Name          string `json:"name"`           // the consensus protocol name: 'opaxos'
@@ -35,10 +35,10 @@ func InitConfig(cfg *paxi.Config) Config {
 			protocolCfg.Name = ProtocolName
 		case "secret_sharing":
 			if v == "" {
-				v = AlgShamir
+				v = SSAlgorithmShamir
 			}
-			if v != AlgShamir && v != AlgSSMS {
-				log.Warningf("'secret_sharing' have to be '%s' or '%s', now we are using '%s'", AlgShamir, AlgSSMS, v)
+			if v != SSAlgorithmShamir && v != SSAlgorithmSSMS {
+				log.Warningf("'secret_sharing' have to be '%s' or '%s', now we are using '%s'", SSAlgorithmShamir, SSAlgorithmSSMS, v)
 			}
 			protocolCfg.SecretSharing = v.(string)
 		case "threshold":

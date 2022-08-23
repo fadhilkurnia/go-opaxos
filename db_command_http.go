@@ -5,10 +5,6 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/ailidani/paxi/encoder"
-	"github.com/ailidani/paxi/log"
-	"time"
-
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 func init() {
@@ -34,8 +30,16 @@ func init() {
 	encoder.Register(Config{})
 }
 
+// http request header names
+const (
+	HTTPClientID  = "Id"
+	HTTPCommandID = "Cid"
+	HTTPTimestamp = "Timestamp"
+	HTTPNodeID    = "Id"
+)
+
 /***************************
- * Client-Replica Messages *
+ * Client-Replica Commands *
  ***************************/
 
 // Request is client request with http response channel
@@ -129,30 +133,6 @@ func (r ReadReply) String() string {
 	return fmt.Sprintf("ReadReply {cid=%d, val=%x}", r.CommandID, r.Value)
 }
 
-// CommandReply contains all the metadata from server
-type CommandReply struct {
-	OK         bool
-	Ballot     string
-	Slot       int
-	EncodeTime time.Duration // time taken for secret-sharing, filled by server
-	SentAt     int64         // the time in unixnano when client sent this command
-	Data       []byte
-}
-
-func UnmarshalCommandReply(buffer []byte) (*CommandReply, error) {
-	cr := &CommandReply{}
-	err := msgpack.Unmarshal(buffer, cr)
-	return cr, err
-}
-
-func (m *CommandReply) Marshal() []byte {
-	b, err := msgpack.Marshal(m)
-	if err != nil {
-		log.Errorf("failed to marshal CommandReply %v", err)
-	}
-	return b
-}
-
 // Transaction contains arbitrary number of commands in one request
 // TODO read-only or write-only transactions
 type Transaction struct {
@@ -183,7 +163,7 @@ type TransactionReply struct {
  *     Config Related     *
  **************************/
 
-// Register message type is used to regitster self (node or client) with master node
+// Register message type is used to register self (node or client) with master node
 type Register struct {
 	Client bool
 	ID     ID

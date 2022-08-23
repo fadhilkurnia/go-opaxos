@@ -1,15 +1,13 @@
 package paxi
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"sync"
 )
 
 // Key type of the key-value database
-type Key int
+type Key int32
 
 func (k Key) ToBytes() []byte {
 	buff := make([]byte, 4)
@@ -20,42 +18,7 @@ func (k Key) ToBytes() []byte {
 // Value type of key-value database
 type Value []byte
 
-// Command of key-value database
-type Command struct {
-	Key       Key
-	Value     Value
-	ClientID  ID
-	CommandID int
-}
-
-func (c Command) Empty() bool {
-	if c.Key == 0 && c.Value == nil && c.ClientID == "" && c.CommandID == 0 {
-		return true
-	}
-	return false
-}
-
-func (c Command) IsRead() bool {
-	return len(c.Value) == 0
-}
-
-func (c Command) IsWrite() bool {
-	return c.Value != nil
-}
-
-func (c Command) Equal(a Command) bool {
-	return c.Key == a.Key && bytes.Equal(c.Value, a.Value) && c.ClientID == a.ClientID && c.CommandID == a.CommandID
-}
-
-func (c Command) String() string {
-	if c.Value == nil {
-		return fmt.Sprintf("Get{key=%v id=%s cid=%d}", c.Key, c.ClientID, c.CommandID)
-	}
-	return fmt.Sprintf("Put{key=%v value=%x id=%s cid=%d}", c.Key, c.Value, c.ClientID, c.CommandID)
-}
-
 // Database defines a database interface
-// TODO replace with more general StateMachine interface
 type Database interface {
 	Execute(Command) Value
 	History(Key) []Value
@@ -81,29 +44,6 @@ func NewDatabase() Database {
 		history:      make(map[Key][]Value),
 	}
 }
-
-/*
-// Execute implements StateMachine interface
-func (d *database) Execute(c interface{}) interface{} {
-	cmd, ok := c.(Command)
-	if !ok {
-		log.Error("cannot execute non command")
-	}
-	k := cmd.Key
-	v := cmd.Value
-	d.Lock()
-	defer d.Unlock()
-	if d.data[k] == nil {
-		d.data[k] = make([]Value, 0)
-	}
-	d.data[k] = append(d.data[k], v)
-	version := len(d.data[k])
-	if version < 2 {
-		return nil
-	}
-	return d.data[k][version-2]
-}
-*/
 
 // Execute executes a command against database
 func (d *database) Execute(c Command) Value {
@@ -172,18 +112,6 @@ func Conflict(gamma *Command, delta *Command) bool {
 	if gamma.Key == delta.Key {
 		if !gamma.IsRead() || !delta.IsRead() {
 			return true
-		}
-	}
-	return false
-}
-
-// ConflictBatch checks if two batchs of commands are conflict
-func ConflictBatch(batch1 []Command, batch2 []Command) bool {
-	for i := 0; i < len(batch1); i++ {
-		for j := 0; j < len(batch2); j++ {
-			if Conflict(&batch1[i], &batch2[j]) {
-				return true
-			}
 		}
 	}
 	return false

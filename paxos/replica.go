@@ -27,25 +27,22 @@ func NewReplica(id paxi.ID) *Replica {
 	r := new(Replica)
 	r.Node = paxi.NewNode(id)
 	r.Paxos = NewPaxos(r)
-	//r.Register(paxi.Request{}, r.handleRequest)
-	r.Register(P1a{}, r.EnqueueProtocolMessages)
-	r.Register(P1b{}, r.EnqueueProtocolMessages)
-	r.Register(P2a{}, r.EnqueueProtocolMessages)
-	r.Register(P2b{}, r.EnqueueProtocolMessages)
-	r.Register(P3{}, r.EnqueueProtocolMessages)
 
-	if *paxi.ClientIsStateful == false {
-		r.Register(&paxi.ClientBytesCommand{}, r.EnqueueClientRequests)
-	}
+	r.Register(P1a{}, r.EnqueueProtocolMessage)
+	r.Register(P1b{}, r.EnqueueProtocolMessage)
+	r.Register(P2a{}, r.EnqueueProtocolMessage)
+	r.Register(P2b{}, r.EnqueueProtocolMessage)
+	r.Register(P3{}, r.EnqueueProtocolMessage)
+	r.Register(&paxi.ClientCommand{}, r.EnqueueClientCommand)
 
 	return r
 }
 
-func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
+func (r *Replica) EnqueueProtocolMessage(pmsg interface{}) {
 	r.Paxos.protocolMessages <- pmsg
 }
 
-func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientBytesCommand) {
+func (r *Replica) EnqueueClientCommand(ccmd *paxi.ClientCommand) {
 	r.Paxos.rawCommands <- ccmd
 }
 
@@ -53,51 +50,3 @@ func (r *Replica) RunWithChannel() {
 	go r.Paxos.run()
 	r.Run()
 }
-
-//func (r *Replica) handleRequest(m paxi.Request) {
-//	log.Debugf("Replica %s received %v\n", r.ID(), m)
-//
-//	if m.Command.IsRead() && *read != "" {
-//		v, inProgress := r.readInProgress(m)
-//		reply := paxi.Reply{
-//			Command:    m.Command,
-//			Value:      v,
-//			Properties: make(map[string]string),
-//			Timestamp:  time.Now().Unix(),
-//		}
-//		reply.Properties[HTTPHeaderSlot] = strconv.Itoa(r.Paxos.slot)
-//		reply.Properties[HTTPHeaderBallot] = r.Paxos.ballot.String()
-//		reply.Properties[HTTPHeaderExecute] = strconv.Itoa(r.Paxos.execute - 1)
-//		reply.Properties[HTTPHeaderInProgress] = strconv.FormatBool(inProgress)
-//		m.Reply(reply)
-//		return
-//	}
-//
-//	if *ephemeralLeader || r.Paxos.IsLeader() || r.Paxos.Ballot() == 0 {
-//		r.Paxos.HandleRequest(m)
-//	} else {
-//		go r.Forward(r.Paxos.Leader(), m)
-//	}
-//}
-
-//func (r *Replica) handleBytesCommand(m *paxi.ClientBytesCommand) {
-//	r.Paxos.HandleRequest(m)
-//}
-
-//func (r *Replica) readInProgress(m paxi.Request) (paxi.Value, bool) {
-//	// TODO
-//	// (1) last slot is read?
-//	// (2) entry in log over writen
-//	// (3) value is not overwriten command
-//
-//	// is in progress
-//	for i := r.Paxos.slot; i >= r.Paxos.execute; i-- {
-//		entry, exist := r.Paxos.log[i]
-//		if exist && entry.command.Key == m.Command.Key {
-//			return entry.command.Value, true
-//		}
-//	}
-//
-//	// not in progress key
-//	return r.Node.Execute(m.Command), false
-//}

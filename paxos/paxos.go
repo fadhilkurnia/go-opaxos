@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 // entry in log
 type entry struct {
-	ballot          paxi.Ballot         // ballot for the value
-	commands        []paxi.BytesCommand // a batch of commands (values)
-	commandsHandler []*paxi.RPCMessage  // corresponding handler for the commands, used to reply to client
-	commit          bool                // commit is true if the value is final
-	quorum          *paxi.Quorum        // quorum for phase 2
+	ballot          paxi.Ballot           // accepted ballot for the value
+	commands        []paxi.BytesCommand   // a batch of commands (values)
+	commandsHandler []*paxi.ClientCommand // corresponding handler for the commands, used to reply to client
+	commit          bool                  // commit is true if the value is final/decided
+	quorum          *paxi.Quorum          // quorum for phase 2
 }
 
 // Paxos instance
@@ -29,12 +28,12 @@ type Paxos struct {
 	ballot  paxi.Ballot    // highest ballot number
 	slot    int            // highest slot number
 
-	quorum               *paxi.Quorum                  // phase 1 quorum
-	requests             []*paxi.ClientBytesCommand    // phase 1 pending requests
-	protocolMessages     chan interface{}              // prepare, propose, commit, etc
-	rawCommands          chan *paxi.ClientBytesCommand // raw commands from clients
-	pendingCommands      chan *paxi.ClientBytesCommand // pending commands ready to be proposed
-	onOffPendingCommands chan *paxi.ClientBytesCommand // non nil pointer to pendingCommands after get response for phase 1
+	quorum               *paxi.Quorum             // phase 1 quorum
+	requests             []*paxi.ClientCommand    // phase 1 pending requests
+	protocolMessages     chan interface{}         // prepare, propose, commit, etc
+	rawCommands          chan *paxi.ClientCommand // raw commands from clients
+	pendingCommands      chan *paxi.ClientCommand // pending commands ready to be proposed
+	onOffPendingCommands chan *paxi.ClientCommand // non nil pointer to pendingCommands after get response for phase 1
 
 	Q1     func(*paxi.Quorum) bool
 	Q2     func(*paxi.Quorum) bool
@@ -49,8 +48,8 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		slot:                 -1,
 		quorum:               paxi.NewQuorum(),
 		protocolMessages:     make(chan interface{}, paxi.GetConfig().ChanBufferSize),
-		rawCommands:          make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
-		pendingCommands:      make(chan *paxi.ClientBytesCommand, paxi.GetConfig().ChanBufferSize),
+		rawCommands:          make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
+		pendingCommands:      make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
 		onOffPendingCommands: nil,
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
@@ -111,7 +110,10 @@ func (p *Paxos) run() {
 	panic(fmt.Sprintf("paxos exited its main loop: %v", err))
 }
 
-func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientBytesCommand) {
+// nonBlockingEnqueuePendingCommand try to enqueue new command (value) to the pendingCommands
+// channel, if the channel is full, goroutine is used to enqueue the commands. Thus
+// this method *always* return, even if the channel is full.
+func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientCommand) {
 	isChannelFull := false
 	if len(p.pendingCommands) == cap(p.pendingCommands) {
 		log.Warningf("Channel for pending commands is full (len=%d)", len(p.pendingCommands))
@@ -176,7 +178,7 @@ func (p *Paxos) SetBallot(b paxi.Ballot) {
 }
 
 // HandleRequest handles request and start phase 1 or phase 2
-func (p *Paxos) HandleRequest(r *paxi.ClientBytesCommand) {
+func (p *Paxos) HandleRequest(r *paxi.ClientCommand) {
 	if !p.active {
 		p.requests = append(p.requests, r)
 
@@ -204,20 +206,20 @@ func (p *Paxos) P1a() {
 }
 
 // P2a starts phase 2 accept
-func (p *Paxos) P2a(r *paxi.ClientBytesCommand) {
+func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	// prepare batch of commands to be proposed
 	batchSize := len(p.onOffPendingCommands) + 1
 	if batchSize > paxi.MaxBatchSize {
 		batchSize = paxi.MaxBatchSize
 	}
 	commands := make([]paxi.BytesCommand, batchSize)
-	commandsHandler := make([]*paxi.RPCMessage, batchSize)
-	commands[0] = *r.BytesCommand
-	commandsHandler[0] = r.RPCMessage
+	commandsHandler := make([]*paxi.ClientCommand, batchSize)
+	commands[0] = r.RawCommand
+	commandsHandler[0] = r
 	for i := 1; i < batchSize; i++ {
 		cmd := <-p.onOffPendingCommands
-		commands[i] = *cmd.BytesCommand
-		commandsHandler[i] = cmd.RPCMessage
+		commands[i] = cmd.RawCommand
+		commandsHandler[i] = cmd
 	}
 	log.Debugf("batching %d commands", batchSize)
 
@@ -403,7 +405,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 				// For optimization, we don't resend the values in the commit message in this prototype.
 				// For production usage, the proposer need to send commit message with values to
 				// acceptors whose P2b messages is not in the phase-2 quorum processed; or the acceptors
-				// can contact back the proposer to send the value.
+				// can contact back the proposer asking the committed value.
 			})
 
 			p.exec()
@@ -444,24 +446,11 @@ func (p *Paxos) exec() {
 		for i, cmd := range e.commands {
 			cmdReply := p.execCommands(&cmd, p.execute, e)
 			if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
-				err := e.commandsHandler[i].SendBytesReply(cmdReply.Marshal())
+				err := e.commandsHandler[i].Reply(cmdReply)
 				if err != nil {
 					log.Errorf("failed to send CommandReply: %v", err)
 				}
 				e.commandsHandler[i] = nil
-
-				// Old code for handling http request (deprecated)
-				//reply := paxi.Reply{
-				//	Command:    e.command,
-				//	Value:      value,
-				//	Properties: make(map[string]string),
-				//}
-				//reply.Properties[HTTPHeaderSlot] = strconv.Itoa(p.execute)
-				//reply.Properties[HTTPHeaderBallot] = e.ballot.String()
-				//reply.Properties[HTTPHeaderExecute] = strconv.Itoa(p.execute)
-				//reply.Properties[HTTPHeaderEncodingTime] = "0"
-				//e.request.Reply(reply)
-				//e.request = nil
 			}
 		}
 
@@ -471,10 +460,10 @@ func (p *Paxos) exec() {
 	}
 }
 
-func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) paxi.CommandReply {
+func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *paxi.CommandReply {
 	var cmd paxi.Command
 
-	reply := paxi.CommandReply{
+	reply := &paxi.CommandReply{
 		OK:         true,
 		Ballot:     "", // unused for now (always empty)
 		Slot:       0,  // unused for now (always empty)
@@ -483,23 +472,22 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 		Data:       nil,
 	}
 
-	if *paxi.ClientIsStateful {
-		cmd = byteCmd.ToCommand()
-
-	} else if *paxi.ClientIsStateful == false {
-		gcmd := &paxi.GenericCommand{}
-		err := msgpack.Unmarshal(*byteCmd, &gcmd)
-		if err != nil {
-			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
-		}
-		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
-		cmd.Value = gcmd.Value
-		log.Debugf("sent time %v", gcmd.SentAt)
-		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
-
-	} else {
-		log.Errorf("unknown client stateful property, does not know how to handle the command")
+	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
+	switch cmdType {
+	case paxi.TypeDBGetCommand:
+		dbCmd := paxi.DeserializeDBCommandGet(*byteCmd)
+		cmd.Key = dbCmd.Key
+		reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+	case paxi.TypeDBPutCommand:
+		dbCmd := paxi.DeserializeDBCommandPut(*byteCmd)
+		cmd.Key = dbCmd.Key
+		cmd.Value = dbCmd.Value
+		reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+	default:
+		log.Errorf("unknown client db command")
+		reply.Code = paxi.CommandReplyErr
 		reply.OK = false
+		return reply
 	}
 
 	value := p.Execute(cmd)
@@ -509,7 +497,12 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) pax
 		reply.Data = value
 	}
 
-	log.Debugf("cmd=%v, value=%x", cmd, value)
+	if *paxi.ClientIsStateful {
+		reply.Metadata[paxi.MetadataAcceptedBallot] = e.ballot
+		reply.Metadata[paxi.MetadataSlot] = slot
+	}
+
+	log.Debugf("op=%d key=%v, value=%x", cmdType, cmd.Key, value)
 	return reply
 }
 
@@ -525,7 +518,7 @@ func (p *Paxos) persistHighestBallot(b paxi.Ballot) {
 	}
 
 	if err := storage.Flush(); err != nil {
-		log.Errorf("failed to flush data to underlying file writer", err)
+		log.Errorf("failed to flush data to underlying file writer: %v", err)
 	}
 }
 
@@ -548,6 +541,6 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 	}
 
 	if err := storage.Flush(); err != nil {
-		log.Errorf("failed to flush data to underlying file writer", err)
+		log.Errorf("failed to flush data to underlying file writer: %v", err)
 	}
 }

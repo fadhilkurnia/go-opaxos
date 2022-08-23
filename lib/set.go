@@ -6,6 +6,16 @@ func NewSet() Set {
 	return make(map[interface{}]struct{})
 }
 
+func NewNonEmptySet(elements ...interface{}) Set {
+	s := make(map[interface{}]struct{})
+
+	for _, e := range elements {
+		s[e] = struct{}{}
+	}
+
+	return s
+}
+
 func (s Set) Add(e interface{}) {
 	s[e] = struct{}{}
 }

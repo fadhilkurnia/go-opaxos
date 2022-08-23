@@ -21,6 +21,9 @@ import (
 
 // HTTPClient implements Client and AdminClient interface with REST API
 type HTTPClient struct {
+	Client
+	AdminClient
+
 	Addrs  map[ID]string
 	HTTP   map[ID]string
 	ID     ID  // client id use the same id as servers in local site
@@ -31,7 +34,7 @@ type HTTPClient struct {
 
 	LeaderClient fasthttp.PipelineClient
 
-	*http.Client
+	NativeHTTPClient *http.Client
 }
 
 // NewHTTPClient creates a new Client from config
@@ -41,7 +44,7 @@ func NewHTTPClient(id ID) *HTTPClient {
 		N:     len(config.Addrs),
 		Addrs: config.Addrs,
 		HTTP:  config.PublicAddrs,
-		Client: &http.Client{
+		NativeHTTPClient: &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:        1000,
 				MaxIdleConnsPerHost: 1000,
@@ -154,7 +157,7 @@ func (c *HTTPClient) rest(id ID, key Key, value Value) (Value, map[string]string
 	req.Header.Set(HTTPCommandID, strconv.Itoa(c.CID))
 	// r.Header.Set(HTTPTimestamp, strconv.FormatInt(time.Now().UnixNano(), 10))
 
-	rep, err := c.Client.Do(req)
+	rep, err := c.NativeHTTPClient.Do(req)
 	if err != nil {
 		log.Error(err)
 		return nil, nil, err
@@ -253,7 +256,7 @@ func (c *HTTPClient) json(id ID, key Key, value Value) (Value, error) {
 		CommandID: c.CID,
 	}
 	data, err := json.Marshal(cmd)
-	res, err := c.Client.Post(url, "json", bytes.NewBuffer(data))
+	res, err := c.NativeHTTPClient.Post(url, "json", bytes.NewBuffer(data))
 	if err != nil {
 		log.Error(err)
 		return nil, err
@@ -370,7 +373,7 @@ func (c *HTTPClient) Consensus(k Key) bool {
 	h := make(map[ID][]Value)
 	for id, url := range c.HTTP {
 		h[id] = make([]Value, 0)
-		r, err := c.Client.Get(url + "/history?key=" + strconv.Itoa(int(k)))
+		r, err := c.NativeHTTPClient.Get(url + "/history?key=" + strconv.Itoa(int(k)))
 		if err != nil {
 			log.Error(err)
 			continue
@@ -413,7 +416,7 @@ func (c *HTTPClient) Consensus(k Key) bool {
 // node crash forever if t < 0
 func (c *HTTPClient) Crash(id ID, t int) {
 	url := c.HTTP[id] + "/crash?t=" + strconv.Itoa(t)
-	r, err := c.Client.Get(url)
+	r, err := c.NativeHTTPClient.Get(url)
 	if err != nil {
 		log.Error(err)
 		return
@@ -424,7 +427,7 @@ func (c *HTTPClient) Crash(id ID, t int) {
 // Drop drops every message send for t seconds
 func (c *HTTPClient) Drop(from, to ID, t int) {
 	url := c.HTTP[from] + "/drop?id=" + string(to) + "&t=" + strconv.Itoa(t)
-	r, err := c.Client.Get(url)
+	r, err := c.NativeHTTPClient.Get(url)
 	if err != nil {
 		log.Error(err)
 		return

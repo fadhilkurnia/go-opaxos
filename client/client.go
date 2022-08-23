@@ -1,13 +1,8 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
-	"github.com/ailidani/paxi/opaxos"
-
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/chain"
-	"github.com/ailidani/paxi/paxos"
 )
 
 var id = flag.String("id", "", "node id this client connects to")
@@ -15,49 +10,49 @@ var algorithm = flag.String("algorithm", "", "Client API type [paxos, chain]")
 var load = flag.Bool("load", false, "Load K keys into DB")
 var master = flag.String("master", "", "Master address.")
 
-// db implements Paxi.DB interface for benchmarking
-type db struct {
-	paxi.Client
-}
-
-func (d *db) Init() error {
-	return nil
-}
-
-func (d *db) Stop() error {
-	return nil
-}
-
-func (d *db) Read(k int) (int, error) {
-	key := paxi.Key(k)
-	v, err := d.Get(key)
-	if len(v) == 0 {
-		return 0, nil
-	}
-	x, _ := binary.Uvarint(v)
-	return int(x), err
-}
-
-func (d *db) Write(k, v int) error {
-	key := paxi.Key(k)
-	value := make([]byte, binary.MaxVarintLen64)
-	binary.PutUvarint(value, uint64(v))
-	err := d.Put(key, value)
-	return err
-}
-
-func (d *db) Write2(k, v int) (interface{}, error) {
-	key := paxi.Key(k)
-	value := make([]byte, binary.MaxVarintLen64)
-	binary.PutUvarint(value, uint64(v))
-	ret, err := d.Put2(key, value)
-	return ret, err
-}
-
-func (d *db) Write3(k int, v []byte) (interface{}, error) {
-	ret, err := d.Put2(paxi.Key(k), v)
-	return ret, err
-}
+//// db implements Paxi.DB interface for benchmarking
+//type db struct {
+//	paxi.Client
+//}
+//
+//func (d *db) Init() error {
+//	return nil
+//}
+//
+//func (d *db) Stop() error {
+//	return nil
+//}
+//
+//func (d *db) Read(k int) (int, error) {
+//	key := paxi.Key(k)
+//	v, err := d.Get(key)
+//	if len(v) == 0 {
+//		return 0, nil
+//	}
+//	x, _ := binary.Uvarint(v)
+//	return int(x), err
+//}
+//
+//func (d *db) Write(k, v int) error {
+//	key := paxi.Key(k)
+//	value := make([]byte, binary.MaxVarintLen64)
+//	binary.PutUvarint(value, uint64(v))
+//	err := d.Put(key, value)
+//	return err
+//}
+//
+//func (d *db) Write2(k, v int) (interface{}, error) {
+//	key := paxi.Key(k)
+//	value := make([]byte, binary.MaxVarintLen64)
+//	binary.PutUvarint(value, uint64(v))
+//	ret, err := d.Put2(key, value)
+//	return ret, err
+//}
+//
+//func (d *db) Write3(k int, v []byte) (interface{}, error) {
+//	ret, err := d.Put2(paxi.Key(k), v)
+//	return ret, err
+//}
 
 func main() {
 	paxi.Init()
@@ -66,35 +61,23 @@ func main() {
 		paxi.ConnectToMaster(*master, true, paxi.ID(*id))
 	}
 
-	d := new(db)
-	switch *algorithm {
-	case "paxos":
-		d.Client = paxos.NewClient(paxi.ID(*id))
-	case "chain":
-		d.Client = chain.NewClient()
-	case "opaxos":
-		d.Client = opaxos.NewClient(paxi.ID(*id))
-	default:
-		d.Client = paxi.NewHTTPClient(paxi.ID(*id))
-	}
+	//d := new(db)
+	//switch *algorithm {
+	//case "paxosx":
+	//	d.Client = paxos.NewClient(paxi.ID(*id))
+	//case "opaxosx":
+	//	d.Client = opaxos.NewClient(paxi.ID(*id))
+	//default:
+	//	d.Client = paxi.NewHTTPClient(paxi.ID(*id))
+	//}
 
 	var bench *paxi.Benchmark
-	bench = paxi.NewBenchmark(d)
+	bench = paxi.NewBenchmark()
 
-	// TODO: handle client_type: unix (default), tcp, http
-	// TODO: handle client_action: block (default), pipeline, callback
-
-	// default client: blocking unix client.
-	bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
-
-	if *paxi.ClientType == "callback" || *paxi.ClientType == "tcp" {
-		bench.ClientFactory = paxi.RPCClientFactory{}.Init().WithServerID(paxi.ID(*id)).Async()
-	}
-	if *paxi.ClientType == "pipeline" {
-		bench.NBClientFactory = paxi.DefaultDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
-	}
 	if *paxi.ClientType == "unix" {
-		bench.NBClientFactory = paxi.UDSDBClientFactory{}.Init().WithServerID(paxi.ID(*id))
+		bench.ClientCreator = paxi.UnixClientCreator{}.WithHostID(paxi.ID(*id))
+	} else {
+		panic("unknown client type")
 	}
 
 	if *load {
