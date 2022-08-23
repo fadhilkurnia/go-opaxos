@@ -606,7 +606,7 @@ func (b *Benchmark) RunBlockingClient() {
 				resp := <-receiverCh
 				if resp.OK {
 					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
-					encodeTimes <- resp.Metadata[MetadataSecretSharingTime].(time.Duration)
+					encodeTimes <- time.Duration(resp.Metadata[MetadataSecretSharingTime].(int64))
 				} else {
 					log.Debugf("receive non-ok response")
 				}
