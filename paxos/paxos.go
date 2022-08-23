@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"time"
 )
 
 // entry in log
@@ -497,6 +498,13 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 		reply.Data = value
 	}
 
+	if *paxi.GatherSecretShareTime || *paxi.ClientIsStateful {
+		reply.Metadata = make(map[byte]interface{})
+	}
+
+	if *paxi.GatherSecretShareTime {
+		reply.Metadata[paxi.MetadataSecretSharingTime] = 0 * time.Second
+	}
 	if *paxi.ClientIsStateful {
 		reply.Metadata[paxi.MetadataAcceptedBallot] = e.ballot
 		reply.Metadata[paxi.MetadataSlot] = slot

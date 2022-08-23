@@ -835,6 +835,10 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, c
 		reply.Data = value
 	}
 
+	if *paxi.GatherSecretShareTime || *paxi.ClientIsStateful {
+		reply.Metadata = make(map[byte]interface{})
+	}
+
 	if *paxi.GatherSecretShareTime {
 		reply.Metadata[paxi.MetadataSecretSharingTime] = e.ssTime[cid]
 	}
