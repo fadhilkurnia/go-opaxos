@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var firstBallot = paxi.NewBallot(0, paxi.NewID(0, 0))
+
 type entry struct {
 	ballot    paxi.Ballot // the accepted ballot number
 	oriBallot paxi.Ballot // the original ballot of the accepted secret-share
@@ -163,10 +165,10 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 	proposals := make([]interface{}, len(cmd.Shares)-1)
 	for i := 0; i < len(cmd.Shares)-1; i++ {
 		proposals[i] = P2a{
-			Fast:      true,
-			Ballot:    fop.ballot,
-			Slot:      fop.slot,
-			Command:   cmd.Shares[i],
+			Fast:   true,
+			Ballot: fop.ballot,
+			Slot:   fop.slot,
+			//Command:   cmd.Shares[i],
 			OriBallot: fop.ballot,
 			ValID:     fop.log[fop.slot].valID,
 		}
@@ -227,18 +229,18 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 		// TODO: nullify or update the command
 		//if e.oriBallot != m.OriBallot && e.command != nil {
 		//	cmdBuff := []byte(*e.command.BytesCommand)
-		//	if e.commit && !bytes.Equal(cmdBuff, m.Command) {
-		//		log.Errorf("safety violation! committed value is updated with different value. %v -> %v", cmdBuff, m.Command)
+		//	if e.commit && !bytes.Equal(cmdBuff, m.Share) {
+		//		log.Errorf("safety violation! committed value is updated with different value. %v -> %v", cmdBuff, m.Share)
 		//	}
-		//	// bc := paxi.BytesCommand(m.Command)
+		//	// bc := paxi.BytesCommand(m.Share)
 		//	// e.command.BytesCommand = &(bc) // TODO: nullify the command
 		//}
 
 		e.ballot = m.Ballot // update the accepted ballot number
 		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal w with b=%s ob=%s vid=%s ssval=%x",
-			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, m.Command))
+			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, m.Share))
 		if e.oriBallot != m.OriBallot {
-			//e.ssVal = m.Command       // update the accepted secret-share
+			//e.ssVal = m.Share       // update the accepted secret-share
 			e.oriBallot = m.OriBallot // update the accepted original-ballot
 		}
 		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal without update b=%s ob=%s vid=%s ssval=%x",
@@ -252,7 +254,7 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 			ballot:    m.Ballot,
 			isFast:    false,
 			command:   nil,
-			ssVal:     m.Command,
+			ssVal:     m.Share,
 			oriBallot: m.OriBallot,
 			commit:    false,
 			quorum:    paxi.NewQuorum(),
@@ -260,7 +262,7 @@ func (fop *FastOPaxos) handleP2a(m P2a) {
 		}
 
 		fop.log[m.Slot].History = append(fop.log[m.Slot].History, fmt.Sprintf("%s %d %d: (classic) accepted & created proposal w with b=%s ob=%s ssval=%x",
-			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.Command))
+			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.Share))
 		resp.History = fop.log[m.Slot].History
 		resp.ValID = m.ValID
 	}
@@ -297,7 +299,7 @@ func (fop *FastOPaxos) handleFastP2a(m P2a) {
 		fop.log[m.Slot] = &entry{
 			ballot:    m.Ballot,
 			isFast:    true,
-			ssVal:     m.Command,
+			ssVal:     m.Share,
 			oriBallot: m.OriBallot,
 			commit:    false,
 			quorum:    paxi.NewQuorum(),
@@ -403,7 +405,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 		otherShare := &CommandShare{
 			Ballot:    m.Ballot,
 			OriBallot: m.OriBallot,
-			Command:   m.Command,
+			Share:     m.Command,
 			ID:        m.ID,
 			History:   m.History,
 			ValID:     m.ValID,
@@ -458,9 +460,9 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 				log.Debugf("+++++++++ h |-> %s", h)
 			}
 			if s.OriBallot == e.shares[highestShareIdx].OriBallot {
-				recoveryShares = append(recoveryShares, make([]byte, len(s.Command)))
-				recoveryShares[i] = make([]byte, len(s.Command))
-				copy(recoveryShares[i], s.Command)
+				recoveryShares = append(recoveryShares, make([]byte, len(s.Share)))
+				recoveryShares[i] = make([]byte, len(s.Share))
+				copy(recoveryShares[i], s.Share)
 				i++
 			}
 		}
@@ -564,7 +566,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 				Fast:      false,
 				Ballot:    fop.ballot,
 				Slot:      m.Slot,
-				Command:   e.command,
+				Share:     e.command,
 				OriBallot: e.oriBallot,
 				ValID:     e.valID,
 			}
@@ -576,7 +578,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 }
 
 func (fop *FastOPaxos) handleP3(m P3) {
-	//bc := paxi.BytesCommand(m.Command)
+	//bc := paxi.BytesCommand(m.Share)
 	if _, exists := fop.log[m.Slot]; !exists {
 		fop.log[m.Slot] = &entry{
 			ballot:    m.Ballot,

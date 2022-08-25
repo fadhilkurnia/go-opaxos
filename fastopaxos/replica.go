@@ -5,7 +5,7 @@ import (
 	"github.com/ailidani/paxi/log"
 )
 
-// Replica for a single FastOPaxos node instance
+// Replica for a single FastOPaxos untrusted node instance
 type Replica struct {
 	paxi.Node
 	*FastOPaxos
