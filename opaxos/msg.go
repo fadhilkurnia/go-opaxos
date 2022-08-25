@@ -24,7 +24,7 @@ func init() {
 
 // P1a prepare message from proposer to acceptor
 type P1a struct {
-	Ballot paxi.Ballot
+	Ballot paxi.Ballot `msgpack:"b"`
 }
 
 func (m P1a) String() string {
@@ -35,9 +35,9 @@ func (m P1a) String() string {
 // sent from acceptor to proposer. If the P1b message comes from
 // a trusted node, the Log contains clear command, not secret-shared command.
 type P1b struct {
-	Ballot paxi.Ballot          // sender leader's node-id
-	ID     paxi.ID              // sender node-id
-	Log    map[int]CommandShare // uncommitted logs
+	Ballot paxi.Ballot          `msgpack:"b"` // sender leader's node-id
+	ID     paxi.ID              `msgpack:"i"` // sender node-id
+	Log    map[int]CommandShare `msgpack:"v,omitempty"`// uncommitted logs
 }
 
 // CommandShare combines each secret-shared command with its ballot number
@@ -58,10 +58,10 @@ func (m P1b) String() string {
 
 // P2a propose message from proposer to acceptor in Phase 2 (accept message)
 type P2a struct {
-	Ballot      paxi.Ballot   // the proposer's ballot-number
-	Slot        int           // the slot to be filled
-	SharesBatch []SecretShare // a batch of secret-shares of command
-	OriBallot   paxi.Ballot   // the value's original ballot
+	Ballot      paxi.Ballot   `msgpack:"b"` // the proposer's ballot-number
+	Slot        int           `msgpack:"s"` // the slot to be filled
+	SharesBatch []SecretShare `msgpack:"v"` // a batch of secret-shares of command
+	OriBallot   paxi.Ballot   `msgpack:"o"` // the value's original ballot
 }
 
 func (m P2a) String() string {
@@ -70,9 +70,9 @@ func (m P2a) String() string {
 
 // P2b response of propose message, sent from acceptor to proposer
 type P2b struct {
-	Ballot paxi.Ballot // the highest ballot-number stored in the acceptor
-	ID     paxi.ID     // the acceptor's id
-	Slot   int
+	Ballot paxi.Ballot 	`msgpack:"b"`// the highest ballot-number stored in the acceptor
+	ID     paxi.ID     	`msgpack:"i"`// the acceptor's id
+	Slot   int 			`msgpack:"s"`
 }
 
 func (m P2b) String() string {
@@ -81,11 +81,11 @@ func (m P2b) String() string {
 
 // P3 message issued by proposer to commit
 type P3 struct {
-	Ballot       paxi.Ballot         // the proposer's ballot-number
-	Slot         int                 // the slot to be committed
-	SharesBatch  []SecretShare       // a batch of secret-shares of command
-	OriBallot    paxi.Ballot         // the value's original ballot
-	CommandBatch []paxi.BytesCommand // a batch of clear command for fellow trusted proposer
+	Ballot      paxi.Ballot         `msgpack:"b"`           // the proposer's ballot-number
+	Slot        int                 `msgpack:"s"`           // the slot to be committed
+	OriBallot   paxi.Ballot         `msgpack:"o"`           // the value's original ballot
+	SharesBatch []SecretShare       `msgpack:"r,omitempty"` // a batch of secret-shares of command
+	Commands    []paxi.BytesCommand `msgpack:"v,omitempty"` // a batch of clear command for fellow trusted proposer
 }
 
 func (m P3) String() string {

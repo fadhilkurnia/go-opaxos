@@ -749,10 +749,10 @@ func (op *OPaxos) broadcastCommit(slot int, ballot paxi.Ballot) {
 			continue
 		}
 		op.Send(trustedNodeID, P3{
-			Ballot:       ballot,
-			Slot:         slot,
-			CommandBatch: op.log[slot].commands,
-			OriBallot:    op.log[slot].oriBallot,
+			Ballot:    ballot,
+			Slot:      slot,
+			Commands:  op.log[slot].commands,
+			OriBallot: op.log[slot].oriBallot,
 		})
 	}
 	for untrustedNodeID := range op.untrustedNodeIDs {
@@ -856,8 +856,8 @@ func (op *OPaxos) HandleCommitRequest(m P3) {
 		if m.SharesBatch != nil {
 			e.sharesBatch = m.SharesBatch
 		}
-		if m.CommandBatch != nil {
-			e.commands = m.CommandBatch
+		if m.Commands != nil {
+			e.commands = m.Commands
 		}
 		e.commit = true
 		e.commandsHandler = nil
@@ -865,14 +865,14 @@ func (op *OPaxos) HandleCommitRequest(m P3) {
 		op.log[m.Slot] = &entry{
 			ballot:      m.Ballot,
 			oriBallot:   m.OriBallot,
-			commands:    m.CommandBatch,
+			commands:    m.Commands,
 			sharesBatch: m.SharesBatch,
 			commit:      true,
 		}
 	}
 
-	if len(m.CommandBatch) > 0 {
-		op.log[m.Slot].commands = m.CommandBatch
+	if len(m.Commands) > 0 {
+		op.log[m.Slot].commands = m.Commands
 	}
 
 	op.exec()

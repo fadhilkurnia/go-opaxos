@@ -333,7 +333,7 @@ func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replySt
 
 	case TypeAdminDropCommand:
 		cmd := DeserializeAdminCommandDrop(cmdBuff)
-		log.Debugf("dropping all messages to %s for $d seconds", cmd.TargetNode, cmd.Duration)
+		log.Debugf("dropping all messages to %s for %d seconds", cmd.TargetNode, cmd.Duration)
 		n.Drop(cmd.TargetNode, int(cmd.Duration))
 
 	case TypeAdminDelayCommand:

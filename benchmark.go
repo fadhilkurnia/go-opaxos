@@ -719,8 +719,9 @@ func (b *Benchmark) RunThroughputCollectorClients() {
 	latWriterWaiter.Add(1)
 	go func() {
 		defer latWriterWaiter.Done()
+		isLatencyChannelOpen := true
 		secondID := 0
-		for {
+		for isLatencyChannelOpen {
 			time.Sleep(1 * time.Second)
 			numResp := len(latencies)
 			log.Infof("At second-%d, throughput: %d reqs/s", secondID, numResp)
@@ -731,11 +732,16 @@ func (b *Benchmark) RunThroughputCollectorClients() {
 			}
 
 			// exit the loop if the latencies channel is already closed
-			respLat, more := <-latencies
-			if more {
-				b.latency = append(b.latency, respLat)
-			} else {
-				break
+			select {
+			case respLat, more := <-latencies:
+				if more {
+					b.latency = append(b.latency, respLat)
+					break
+				}
+				// the channel is closed
+				log.Debugf("%d exit the latency & throughput gatherer goroutine...", len(latencies))
+				isLatencyChannelOpen = false
+			default:
 			}
 			secondID++
 		}
@@ -810,28 +816,34 @@ func (b *Benchmark) RunThroughputCollectorClients() {
 					log.Errorf("failed to send command %v", clientErr)
 				}
 
-				// wait for the response
-				resp := <-receiverCh
-				if resp.Code == CommandReplyOK {
-					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
-				} else {
-					log.Errorf("receive non-ok response")
-				}
+				requestTimeoutFlag := make(chan bool)
+				go func() {
+					time.Sleep(1 * time.Second)
+					requestTimeoutFlag <- true
+				}()
 
-				// stop if this client already send N requests
-				if b.N > 0 && reqCounter == b.N {
-					isClientFinished = true
-					break
-				}
-
-				// stop if the timer is up, non-blocking checking
+				// stop if the timer is up or N requests is reached
 				if b.T != 0 {
 					select {
 					case _ = <-timesUpFlag:
 						isClientFinished = true
 						continue
-					default:
+					case resp := <-receiverCh:
+						if resp.Code == CommandReplyOK {
+							latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+						} else {
+							log.Errorf("receive non-ok response")
+						}
+						// stop if this client already send N requests
+						if b.N > 0 && reqCounter == b.N {
+							isClientFinished = true
+							break
+						}
+					case _ = <- requestTimeoutFlag:
+						// forget this request
 					}
+				} else {
+					log.Fatalf("throughput_collector require time T")
 				}
 
 				// wait before issuing next request, if limiter is active

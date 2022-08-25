@@ -103,11 +103,11 @@ type ClientCommand struct {
 // CommandReply is the reply for both DBCommand and AdminCommand.
 // It includes several meta-data for measurement and debugging purposes.
 type CommandReply struct {
-	CommandID uint32               // CommandID the ID of the command replayed by this struct
-	Code      byte                 // Code is either CommandReplyOK or CommandReplyErr
-	SentAt    int64                // the time (in unixnano) when client sent the command replayed
-	Data      []byte               // any data, if this is reply for put command, the Data contains the value
-	Metadata  map[byte]interface{} // metadata for measurements, the key is Metadata constant
+	CommandID uint32               `msgpack:"i"` 			// CommandID the ID of the command replayed by this struct
+	Code      byte                 `msgpack:"c"` 			// Code is either CommandReplyOK or CommandReplyErr
+	SentAt    int64                `msgpack:"t"` 			// the time (in unixnano) when client sent the command replayed
+	Data      []byte               `msgpack:"d"` 			// any data, if this is reply for put command, the Data contains the value
+	Metadata  map[byte]interface{} `msgpack:"m,omitempty"` 	// metadata for measurements, the key is Metadata constant
 }
 
 func (c *ClientCommand) Reply(r *CommandReply) error {

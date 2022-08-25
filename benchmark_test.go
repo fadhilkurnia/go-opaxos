@@ -79,7 +79,7 @@ func TestBenchmark(t *testing.T) {
 	f.start = start
 	f.end = end
 
-	b := NewBenchmark(f)
+	b := NewBenchmark()
 	b.Min = start
 	b.K = 1000
 	b.Distribution = "normal"

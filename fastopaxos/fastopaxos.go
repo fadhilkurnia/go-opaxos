@@ -139,7 +139,7 @@ func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
 		oriBallot: fop.ballot,
 		isFast:    true,
 		//command:   cmd,
-		//ssVal:     cmd.Shares[len(cmd.Shares)-1],
+		//ssVal:     cmd.SharesBatch[len(cmd.SharesBatch)-1],
 		quorum: paxi.NewQuorum(),
 		//shares:    nil,
 		valID: fmt.Sprintf("%x", cmd.RawCommand),
@@ -514,7 +514,7 @@ func (fop *FastOPaxos) handleFastP2b(m P2b) {
 			}
 
 			e.ssTime = dur
-			//e. command.Shares = newSharesStruct
+			//e. command.SharesBatch = newSharesStruct
 			//bc := paxi.BytesCommand(val)
 			//e.command.BytesCommand = &bc // replace the held command (secret value)
 			e.ssVal = newShares[len(newShares)-1]
