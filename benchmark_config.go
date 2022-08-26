@@ -12,6 +12,7 @@ type BenchmarkConfig struct {
 	Distribution         string  // key-access distribution: order, uniform, conflict, normal, zipfian, exponential.
 	LinearizabilityCheck bool    // run linearizability checker at the end of benchmark
 	Rounds               int     // (unimplemented) repeat in many rounds sequentially
+	BufferSize           int     // buffer size for the benchmark's client
 
 	// conflict distribution
 	Conflicts int // percentage of conflicting keys [1,100]
@@ -43,6 +44,7 @@ func DefaultBConfig() BenchmarkConfig {
 		Concurrency:          1,
 		Distribution:         "uniform",
 		LinearizabilityCheck: true,
+		BufferSize:           1024,
 		Conflicts:            100,
 		Min:                  0,
 		Mu:                   0,

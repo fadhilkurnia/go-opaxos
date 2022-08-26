@@ -4,3 +4,7 @@ package paxi
 type TCPClient struct {
 
 }
+
+func NewTCPClient(id ID) *TCPClient {
+	return &TCPClient{}
+}

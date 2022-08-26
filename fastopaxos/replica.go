@@ -34,9 +34,6 @@ func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientCommand) {
 }
 
 func (r *Replica) RunWithWorker() {
-	for i := 0; i < r.FastOPaxos.numSSWorkers; i++ {
-		go r.FastOPaxos.initRunSecretSharingWorker()
-	}
 	go r.FastOPaxos.run()
 	r.Run()
 }

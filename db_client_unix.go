@@ -54,7 +54,7 @@ func NewUnixClient(id ID) *UnixClient {
 	}
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
-	c.responseCh = make(chan *CommandReply, GetConfig().ChanBufferSize)
+	c.responseCh = make(chan *CommandReply, GetConfig().Benchmark.BufferSize)
 
 	return c
 }
@@ -784,7 +784,7 @@ func NewDefaultDBClient(serverID ID) (NonBlockingDBClient, error) {
 	}
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
-	c.responseCh = make(chan *CommandReply, GetConfig().ChanBufferSize)
+	c.responseCh = make(chan *CommandReply, GetConfig().Benchmark.BufferSize)
 
 	go c._putResponseToChannel()
 
@@ -838,7 +838,7 @@ func (c *DefaultDBClient) _putResponseToChannel() {
 				break
 			}
 
-			if len(c.responseCh) >= GetConfig().ChanBufferSize {
+			if len(c.responseCh) >= GetConfig().Benchmark.BufferSize {
 				log.Warningf("receiver channel is full (len=%d)", len(c.responseCh))
 			}
 

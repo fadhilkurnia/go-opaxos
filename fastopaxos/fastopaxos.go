@@ -8,22 +8,16 @@ import (
 	"github.com/ailidani/paxi/opaxos"
 	"github.com/fadhilkurnia/shamir/shamir"
 	"math"
-	"runtime"
 	"time"
 )
 
 var firstBallot = paxi.NewBallot(0, paxi.NewID(0, 0))
 
 type entry struct {
-	ballot    paxi.Ballot // the accepted ballot number
-	oriBallot paxi.Ballot // the original ballot of the accepted secret-share
-	commit    bool        // commit indicates whether this entry is already committed or not
-
-	// field for acceptor
-	ssVal        []byte               // TODO: deprecate this, replace with share
-	share        []opaxos.SecretShare // the accepted secret-share
-	isFast       bool                 // indicate whether any secret-share can be accepted or not // TODO: deprecate this
-	canAcceptAny bool                 // indicate whether any secret-share can be accepted or not
+	ballot              paxi.Ballot // the accepted ballot number
+	oriBallot           paxi.Ballot // the original ballot of the accepted secret-share
+	commit              bool        // commit indicates whether this entry is already committed or not
+	secretSharedCommand SecretShare // the accepted secret-share (value / command)
 
 	// field for trusted proposer
 	quorum         *paxi.Quorum        // phase-2 quorum
@@ -36,6 +30,8 @@ type entry struct {
 	// for debugging purposes
 	History []string
 	valID   string
+	ssVal   []byte // TODO: deprecate this, replace with share
+	isFast  bool   // indicate whether any secret-share can be accepted or not // TODO: deprecate this
 }
 
 // FastOPaxos instance in a single Node
@@ -46,6 +42,7 @@ type FastOPaxos struct {
 	execute   int            // next execute slot number
 	ballot    paxi.Ballot    // the proposer's current ballot
 	maxBallot paxi.Ballot    // the acceptor's highest promised ballot
+	acceptAny bool           // indicate whether any secret-share can be accepted or not
 	slot      int            // highest non-empty slot number
 
 	protocolMessages chan interface{}                 // receiver channel for prepare, propose, commit messages
@@ -53,13 +50,12 @@ type FastOPaxos struct {
 	pendingCommands  chan *opaxos.SecretSharedCommand // pending commands that will be proposed
 	retryCommands    chan *paxi.ClientCommand         // retryCommands holds command that need to be reproposed due to conflict
 
-	N               int                            // N is the number of acceptors
-	threshold       int                            // threshold is the shares required to regenerate the secret value
-	numSSWorkers    int                            // number of workers to secret-share client's raw command
-	numQ2           int                            // numQ2 is the size of quorum for phase-2 (classic)
-	numQF           int                            // numQF is the size of fast quorum
-	Q2              func(quorum *paxi.Quorum) bool // Q2 return true if there are ack from numQ2 acceptors
-	defaultSSWorker opaxos.SecretSharingWorker     // secret-sharing worker for reconstruction only, used without channel
+	N            int                            // N is the number of acceptors
+	threshold    int                            // threshold is the shares required to regenerate the secret value
+	numSSWorkers int                            // number of workers to secret-share client's raw command
+	numQ2        int                            // numQ2 is the size of quorum for phase-2 (classic)
+	numQF        int                            // numQF is the size of fast quorum
+	Q2           func(quorum *paxi.Quorum) bool // Q2 return true if there are ack from numQ2 acceptors
 }
 
 func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
@@ -69,8 +65,9 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 
 	fop := &FastOPaxos{
 		Node:             n,
-		ballot:           paxi.NewBallot(0, n.ID()),
-		maxBallot:        paxi.NewBallot(0, n.ID()),
+		ballot:           firstBallot,
+		maxBallot:        firstBallot,
+		acceptAny:        true,
 		log:              make(map[int]*entry, paxi.GetConfig().BufferSize),
 		slot:             -1,
 		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
@@ -80,7 +77,6 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 		Q2:               func(q *paxi.Quorum) bool { return q.Majority() },
 		N:                n.GetConfig().N(),
 		threshold:        cfg.Protocol.Threshold,
-		numSSWorkers:     runtime.NumCPU(),
 		numQ2:            numQ2,
 		numQF:            numQF,
 	}
@@ -89,18 +85,7 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 		opt(fop)
 	}
 
-	fop.initDefaultSecretSharingWorker()
-
 	return fop
-}
-
-func (fop *FastOPaxos) initRunSecretSharingWorker() {
-	worker := opaxos.NewWorker("shamir", fop.N, fop.threshold)
-	worker.StartProcessingInput(fop.rawCommands, fop.pendingCommands)
-}
-
-func (fop *FastOPaxos) initDefaultSecretSharingWorker() {
-	fop.defaultSSWorker = opaxos.NewWorker("shamir", fop.N, fop.threshold)
 }
 
 func (fop *FastOPaxos) run() {
