@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/ailidani/paxi/fastopaxos"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/ailidani/paxi"
-	"github.com/ailidani/paxi/opaxos"
 	"github.com/ailidani/paxi/paxos"
 )
 
@@ -44,15 +44,16 @@ func main() {
 	case "xpaxos":
 		client = paxos.NewClient(paxi.ID(*id))
 
-	case "xopaxos":
-		client = opaxos.NewClient(paxi.ID(*id))
+	case "fastopaxos":
+		client = fastopaxos.NewClient()
 
 	default:
 		if *paxi.ClientType == "unix" {
 			client = paxi.NewUnixClient(paxi.ID(*id))
 			admin = client.(paxi.AdminClient)
 		} else if *paxi.ClientType == "tcp" {
-			panic("unimplemented")
+			client = paxi.NewTCPClient(paxi.ID(*id))
+			admin = client.(paxi.AdminClient)
 		} else if *paxi.ClientType == "http" {
 			client = paxi.NewHTTPClient(paxi.ID(*id))
 			admin = client.(paxi.AdminClient)
@@ -87,7 +88,7 @@ func run(cmd string, args []string) {
 		}
 		k, _ := strconv.Atoi(args[0])
 		v, _ := client.Get(paxi.Key(k))
-		fmt.Println(string(v))
+		fmt.Println(">>", string(v))
 
 	case "put":
 		if len(args) < 2 {
@@ -96,7 +97,6 @@ func run(cmd string, args []string) {
 		}
 		k, _ := strconv.Atoi(args[0])
 		client.Put(paxi.Key(k), []byte(args[1]))
-		//fmt.Println(string(v))
 
 	case "consensus":
 		if len(args) < 1 {

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/ailidani/paxi"
+	"github.com/ailidani/paxi/fastopaxos"
 )
 
 var id = flag.String("id", "", "node id this client connects to")
@@ -76,8 +77,14 @@ func main() {
 
 	if *paxi.ClientType == "unix" {
 		bench.ClientCreator = paxi.UnixClientCreator{}.WithHostID(paxi.ID(*id))
+	} else if *paxi.ClientType == "tcp" {
+		bench.ClientCreator = paxi.TCPClientCreator{}.WithHostID(paxi.ID(*id))
 	} else {
 		panic("unknown client type")
+	}
+
+	if *algorithm == "fastopaxos" {
+		bench.ClientCreator = fastopaxos.ClientCreator{}
 	}
 
 	if *load {

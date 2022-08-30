@@ -15,7 +15,6 @@ import (
 	"syscall"
 )
 
-// TODO: revise this
 func (n *node) runTCPServer() {
 	rpcAddress, err := url.Parse(config.PublicAddrs[n.id])
 	if err != nil {
@@ -31,7 +30,8 @@ func (n *node) runTCPServer() {
 	defer listener.Close()
 
 	log.Infof("listening on port %s for client-node communication", port)
-	// accept any incoming tcp connection request from client
+
+	// accept any incoming TCP connection request from client
 	for {
 		// Accept() blocks until it receive new connection request from client
 		conn, acceptErr := listener.Accept()
@@ -39,15 +39,9 @@ func (n *node) runTCPServer() {
 			log.Errorf("failed to accept client init connection request %v", err)
 			continue
 		}
-		log.Debugf("client connection accepted: %s, serving with client type: %s", conn.RemoteAddr(), *ClientType)
+		log.Debugf("client connection accepted, serving with client type: %s", *ClientType)
 
-		if *ClientAction == "" || *ClientAction == "block" || *ClientType == "callback" {
-			go n.handleClientRequests(conn)
-		} else if *ClientAction == "pipeline" {
-			go n.handleGenericCommandX(conn)
-		} else {
-			log.Errorf("unknown client action %s", *ClientAction)
-		}
+		go n.handleIncomingCommands(conn)
 	}
 }
 
@@ -87,159 +81,6 @@ func (n *node) runUnixServer() {
 	}
 }
 
-// handleClientRequests handles clients with blocking or callback request behavior
-func (n *node) handleClientRequests(conn net.Conn) {
-	defer conn.Close()
-
-	var err error
-	var clientReqFirstByte byte
-	var msg *RPCMessage
-
-	clientReader := bufio.NewReader(conn)
-	clientWriter := bufio.NewWriter(conn)
-
-	for err == nil {
-		// clientReader blocks until bytes are available in the underlying socket
-		// thus, it is fine to have this busy-loop
-		// read the command type, then the command itself.
-
-		clientReqFirstByte, err = clientReader.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				log.Debugf("client is terminating the connection")
-				break
-			}
-			log.Errorf("fail to read byte from client, terminating the connection. %v", err)
-			break
-		}
-
-		switch clientReqFirstByte {
-		case COMMAND:
-			msg, err = NewRPCMessageWithReply(clientReader, clientWriter)
-			if err != nil {
-				break
-			}
-			log.Debugf("receiving rpc message: %s", msg)
-
-			cmd := BytesCommand(msg.Data)
-
-			if len(n.MessageChan) == cap(n.MessageChan) {
-				log.Warningf("Channel for client's messages is full (len=%d)", len(n.MessageChan))
-			}
-
-			n.MessageChan <- &ClientBytesCommand{&cmd, msg}
-		}
-	}
-	if err != io.EOF {
-		log.Errorf("exiting from reader loop %s, terminating client connection", err.Error())
-	}
-}
-
-// TODO: deprecate this
-// handleGenericCommand handles request from generic client
-// request message: GenericCommand
-// response message: CommandResponse
-// check client.SendCommand for the sender implementation
-func (n *node) handleGenericCommandX(conn net.Conn) {
-	defer conn.Close()
-
-	clientReader := bufio.NewReader(conn)
-	clientWriter := bufio.NewWriter(conn)
-
-	var err error
-	var firstByte byte
-	var reqLen uint32
-	var reqLenBuff [4]byte
-
-	for {
-		// clientReader blocks until bytes are available in the underlying socket
-		// thus, it is fine to have this busy-loop
-		// read the command type, then the command itself.
-
-		firstByte, err = clientReader.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				log.Debugf("client is terminating the connection")
-				break
-			}
-			log.Errorf("fail to read byte from client, terminating the connection. %v", err)
-			break
-		}
-
-		if firstByte == COMMAND {
-			var reqBuff []byte
-
-			log.Debugf("waiting length ...")
-			_, err = io.ReadAtLeast(clientReader, reqLenBuff[:], 4)
-			if err != nil {
-				log.Errorf("fail to read command length %v", err)
-				break
-			}
-
-			reqLen = binary.BigEndian.Uint32(reqLenBuff[:])
-			reqBuff = make([]byte, reqLen)
-			log.Debugf("waiting command msgBuff ...")
-			_, err = io.ReadAtLeast(clientReader, reqBuff[:reqLen], int(reqLen))
-			if err != nil {
-				log.Errorf("fail to read command data %v", err)
-				break
-			}
-
-			log.Debugf("len=%x(%d) data=%x", reqLenBuff, reqLen, reqBuff)
-
-			cmd := BytesCommand(reqBuff)
-			rpcMsg := RPCMessage{
-				MessageID:  0,
-				MessageLen: reqLen,
-				Data:       reqBuff,
-				Reply:      clientWriter,
-			}
-
-			log.Debugf("get command from client %x", reqBuff)
-			if len(n.MessageChan) == cap(n.MessageChan) {
-				log.Warningf("Channel for client's messages is full (len=%d)", len(n.MessageChan))
-			}
-
-			n.MessageChan <- &ClientBytesCommand{&cmd, &rpcMsg}
-		}
-
-		//if firstByte == CRASH {
-		//	var reqBuff []byte
-		//
-		//	log.Debugf("waiting length ...")
-		//	_, err = io.ReadAtLeast(clientReader, reqLenBuff[:], 4)
-		//	if err != nil {
-		//		log.Errorf("fail to read command length %v", err)
-		//		break
-		//	}
-		//
-		//	reqLen = binary.BigEndian.Uint32(reqLenBuff[:])
-		//	reqBuff = make([]byte, reqLen)
-		//	log.Debugf("waiting crash duration ...")
-		//	_, err = io.ReadAtLeast(clientReader, reqBuff[:reqLen], int(reqLen))
-		//	if err != nil {
-		//		log.Errorf("fail to read crash duration %v", err)
-		//		break
-		//	}
-		//	crashDurationSecond := binary.BigEndian.Uint32(reqBuff[:reqLen])
-		//	log.Debugf("len=%x(%d) data=%x", reqLenBuff, reqLen, reqBuff)
-		//	crashDurationStr := fmt.Sprintf("%ds", crashDurationSecond)
-		//	crashDuration, err := time.ParseDuration(crashDurationStr)
-		//	if err != nil {
-		//		log.Errorf("fail to parse crash duration %v", err)
-		//		break
-		//	}
-		//
-		//	n.MessageChan <- &CrashMessage{
-		//		Duration: crashDuration,
-		//	}
-		//}
-	}
-	if err != io.EOF {
-		log.Errorf("exiting from reader loop %s, terminating client connection", err.Error())
-	}
-}
-
 func (n *node) handleIncomingCommands(conn net.Conn) {
 	defer conn.Close()
 
@@ -255,6 +96,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 	acceptableCommandType.Add(TypeDBGetCommand)
 	acceptableCommandType.Add(TypeDBPutCommand)
 	acceptableCommandType.Add(TypeAdminCrashCommand)
+	acceptableCommandType.Add(TypeOtherCommand)
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket

@@ -18,7 +18,7 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P2a{}, r.EnqueueProtocolMessages)
 	r.Register(P2b{}, r.EnqueueProtocolMessages)
 	r.Register(P3{}, r.EnqueueProtocolMessages)
-	r.Register(&paxi.ClientCommand{}, r.EnqueueClientRequests)
+	r.Register(&paxi.ClientCommand{}, r.HandleClientCommand)
 
 	return r
 }
@@ -28,9 +28,13 @@ func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
 	r.FastOPaxos.protocolMessages <- pmsg
 }
 
-func (r *Replica) EnqueueClientRequests(ccmd *paxi.ClientCommand) {
-	log.Debugf("enqueuing client request: %v", ccmd)
-	r.FastOPaxos.rawCommands <- ccmd
+func (r *Replica) HandleClientCommand(ccmd *paxi.ClientCommand) {
+	log.Debugf("enqueuing client commands: %v", ccmd)
+	if ccmd.CommandType == paxi.TypeOtherCommand {
+		r.FastOPaxos.rawCommands <- ccmd
+	} else {
+		log.Errorf("unknown client's command")
+	}
 }
 
 func (r *Replica) RunWithWorker() {

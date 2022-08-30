@@ -6,27 +6,31 @@ import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/ailidani/paxi/opaxos"
-	"github.com/fadhilkurnia/shamir/shamir"
 	"math"
+	"strings"
 	"time"
 )
 
-var firstBallot = paxi.NewBallot(0, paxi.NewID(0, 0))
+// firstBallot is a fast round ballot
+// with node 1.1 as the coordinator
+var firstBallot = NewBallot(0, false,
+	paxi.NewID(1, 1))
 
 type entry struct {
-	ballot              paxi.Ballot // the accepted ballot number
-	oriBallot           paxi.Ballot // the original ballot of the accepted secret-share
+	ballot              Ballot      // the accepted ballot number
+	oriBallot           Ballot      // the original ballot of the accepted secret-share
 	commit              bool        // commit indicates whether this entry is already committed or not
 	secretSharedCommand SecretShare // the accepted secret-share (value / command)
 
-	// field for trusted proposer
+	// field for the trusted coordinator
 	quorum         *paxi.Quorum        // phase-2 quorum
-	command        paxi.BytesCommand   // proposed command
+	command        paxi.BytesCommand   // proposed command in a clear form
 	commandHandler *paxi.ClientCommand // handler to reply to client for the command
-	commandShare   []*CommandShare     // collection of command from multiple acceptors, with the same slot number
-	shares         []*CommandShare     // TODO: deprecate this, replace with commandShare
-	ssTime         time.Duration
+	propResponses  []*P2b
 
+	commandShare []*CommandShare // collection of command from multiple acceptors, with the same slot number
+	shares       []*CommandShare // TODO: deprecate this, replace with commandShare
+	ssTime       time.Duration
 	// for debugging purposes
 	History []string
 	valID   string
@@ -38,11 +42,23 @@ type entry struct {
 type FastOPaxos struct {
 	paxi.Node // extending generic paxi.Node
 
+	// fields for trusted proposer, and the coordinator
+	ballot           Ballot           // the proposer's current ballot
+	isTrusted        bool             // isTrusted is true if this node has proposer role
+	isCoordinator    bool             // isCoordinator is true if this node is a coordinator (the leader)
+	algorithm        string           // secret-sharing algorithm: shamir or ssms
+	N                int              // N is the number of acceptors
+	threshold        int              // threshold is the shares required to regenerate the secret value
+	trustedNodeIDs   map[paxi.ID]bool // list of trusted node IDs, used to send clear command during commit phase
+	untrustedNodeIDs map[paxi.ID]bool // list of untrusted node IDs, used for commit
+	ssWorker         opaxos.SecretSharingWorker
+	oriBalToSlot     map[Ballot]int
+
+	// fields for acceptors
+	maxBallot Ballot         // the acceptor's highest promised ballot
+	acceptAny bool           // indicate whether any secret-share can be accepted or not
 	log       map[int]*entry // log ordered by slot number
 	execute   int            // next execute slot number
-	ballot    paxi.Ballot    // the proposer's current ballot
-	maxBallot paxi.Ballot    // the acceptor's highest promised ballot
-	acceptAny bool           // indicate whether any secret-share can be accepted or not
 	slot      int            // highest non-empty slot number
 
 	protocolMessages chan interface{}                 // receiver channel for prepare, propose, commit messages
@@ -50,8 +66,6 @@ type FastOPaxos struct {
 	pendingCommands  chan *opaxos.SecretSharedCommand // pending commands that will be proposed
 	retryCommands    chan *paxi.ClientCommand         // retryCommands holds command that need to be reproposed due to conflict
 
-	N            int                            // N is the number of acceptors
-	threshold    int                            // threshold is the shares required to regenerate the secret value
 	numSSWorkers int                            // number of workers to secret-share client's raw command
 	numQ2        int                            // numQ2 is the size of quorum for phase-2 (classic)
 	numQF        int                            // numQF is the size of fast quorum
@@ -66,8 +80,12 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 	fop := &FastOPaxos{
 		Node:             n,
 		ballot:           firstBallot,
+		isTrusted:        false,
+		isCoordinator:    false,
+		algorithm:        cfg.Protocol.SecretSharing,
 		maxBallot:        firstBallot,
 		acceptAny:        true,
+		oriBalToSlot:     make(map[Ballot]int),
 		log:              make(map[int]*entry, paxi.GetConfig().BufferSize),
 		slot:             -1,
 		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
@@ -79,549 +97,334 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 		threshold:        cfg.Protocol.Threshold,
 		numQ2:            numQ2,
 		numQF:            numQF,
+		trustedNodeIDs:   make(map[paxi.ID]bool),
+		untrustedNodeIDs: make(map[paxi.ID]bool),
 	}
 
 	for _, opt := range options {
 		opt(fop)
 	}
 
+	// parse roles for this node
+	roles := strings.Split(cfg.Roles[n.ID()], ",")
+	for _, r := range roles {
+		if r == "proposer" {
+			fop.isTrusted = true
+			fop.initDefaultSecretSharingWorker()
+
+			// by default node 1.1 is the trusted node and coordinator
+			if n.ID().Node() == 1 && n.ID().Zone() == 1 {
+				fop.isCoordinator = true
+			}
+		}
+	}
+
+	// parse other trusted and untrusted node
+	for nodeID, nodeRolesStr := range cfg.Roles {
+		nodeRoles := strings.Split(nodeRolesStr, ",")
+		isNodeTrusted := false
+		for _, r := range nodeRoles {
+			if r == "proposer" {
+				fop.trustedNodeIDs[nodeID] = true
+				isNodeTrusted = true
+			}
+		}
+		if !isNodeTrusted {
+			fop.untrustedNodeIDs[nodeID] = true
+		}
+	}
+
 	return fop
+}
+
+func (fop *FastOPaxos) initDefaultSecretSharingWorker() {
+	numShares := fop.N
+	numThreshold := fop.threshold
+	fop.ssWorker = opaxos.NewWorker(fop.algorithm, numShares, numThreshold)
 }
 
 func (fop *FastOPaxos) run() {
 	var err error
 	for err == nil {
 		select {
-		// handle incoming commands from clients
-		case cmd := <-fop.pendingCommands:
-			fop.handleCommands(cmd)
-			numPendingCmd := len(fop.pendingCommands)
-			for numPendingCmd > 0 {
-				fop.handleCommands(<-fop.pendingCommands)
-				numPendingCmd--
-			}
+		case dcmd := <- fop.rawCommands:
+			fop.handleClientDirectCommand(dcmd)
 			break
 
-		// handle incoming protocol messages from other node
-		case pmsg := <-fop.protocolMessages:
-			fop.handleProtocolMessages(pmsg)
-			numProtocolMsg := len(fop.protocolMessages)
-			for numProtocolMsg > 0 {
-				fop.handleProtocolMessages(<-fop.protocolMessages)
-				numProtocolMsg--
-			}
+		case pMsg := <-fop.protocolMessages:
+			fop.handleProtocolMessage(pMsg)
 			break
 		}
 	}
 
-	panic(fmt.Sprintf("fastpaxos instance exited its main loop: %v", err))
+	panic(fmt.Sprintf("fastopaxos instance exited its main loop: %v", err))
 }
 
-func (fop *FastOPaxos) handleCommands(cmd *opaxos.SecretSharedCommand) {
-	log.Debugf("handling client's command with fast proposal (slot#=%d, cmd=%v)", fop.slot+1, cmd)
 
-	fop.slot++
-	fop.log[fop.slot] = &entry{
-		ballot:    fop.ballot,
-		oriBallot: fop.ballot,
-		isFast:    true,
-		//command:   cmd,
-		//ssVal:     cmd.SharesBatch[len(cmd.SharesBatch)-1],
-		quorum: paxi.NewQuorum(),
-		//shares:    nil,
-		valID: fmt.Sprintf("%x", cmd.RawCommand),
+// handleClientDirectCommand need to handle several cases:
+// For the coordinator:
+// - unassigned: this is the common case, the coordinator receives direct command before P2b from other nodes
+// - assigned, not committed: the coordinator already received P2b from other nodes, but not enough to be committed
+// - assigned, committed: the coordinator already received |Qf| P2b messages, before receiving client's direct command
+// For the acceptor
+// - unassigned: this is the common case
+// - assigned: this can only happen if P3 comes first from the coordinator before client's DirectCommand
+func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
+	if len(cmd.RawCommand) == 0 {
+		log.Warningf("got empty direct command from client: %v", cmd)
+		return
 	}
-	fop.log[fop.slot].History = append(
-		fop.log[fop.slot].History,
-		fmt.Sprintf("%s %d %d: created with b=%s ob=%s vid=%s ssval=%x",
-			fop.ID(),
-			time.Now().Unix(),
-			fop.slot,
-			fop.ballot,
-			fop.ballot,
-			fop.log[fop.slot].valID,
-			"asd"))
-	//fop.log[fop.slot].ssVal))
 
-	// self ack the proposal
-	fop.log[fop.slot].quorum.ACK(fop.ID())
+	if !fop.acceptAny {
+		log.Warning("can not accept any secret-shared value, need to be prepared first")
+		return
+	}
 
-	// prepare the fast-proposal
-	proposals := make([]interface{}, len(cmd.Shares)-1)
-	for i := 0; i < len(cmd.Shares)-1; i++ {
-		proposals[i] = P2a{
-			Fast:   true,
-			Ballot: fop.ballot,
-			Slot:   fop.slot,
-			//Command:   cmd.Shares[i],
-			OriBallot: fop.ballot,
-			ValID:     fop.log[fop.slot].valID,
+	directCmd, err := DeserializeDirectCommand(cmd.RawCommand)
+	if err != nil {
+		log.Errorf("failed to deserialize DirectCommand: %s", err)
+		return
+	}
+
+	log.Debugf("handling DirectCommand from client: b=%s bo=%s lencmd=%d", fop.ballot, directCmd.OriBallot, len(directCmd.Command))
+	if fop.isCoordinator {
+		fop.coordinatorHandleClientDirectCommand(cmd, directCmd)
+		return
+	}
+
+	// the non-coordinator nodes (acceptors), speculatively assign a slot number
+	// for client's command, in the common case.
+	var newEntry *entry
+	var assignedSlot int
+
+	if existingSlot, exist := fop.oriBalToSlot[directCmd.OriBallot]; exist {
+		// out-of-order case: DirectCommand received before commit from the coordinator
+		log.Warningf("receiving DirectCommand after assigned| s=%d bo=%s", existingSlot, directCmd.OriBallot)
+		assignedSlot = existingSlot
+		newEntry = fop.log[existingSlot]
+		newEntry.secretSharedCommand = directCmd.Share
+
+		delete(fop.oriBalToSlot, directCmd.OriBallot)
+	} else {
+		// the common case: DirectCommand received before commit, assigning new slot
+		newEntry = &entry{
+			ballot:              fop.ballot,
+			oriBallot:           directCmd.OriBallot,
+			commit:              false,
+			secretSharedCommand: directCmd.Share,
+			quorum:              nil,
+			command:             nil,
+			commandHandler:      nil,
+		}
+		fop.slot++
+		assignedSlot = fop.slot
+		fop.log[assignedSlot] = newEntry
+	}
+
+	// Send P2b to the coordinator
+	fop.Send(fop.ballot.ID(), P2b{
+		Ballot:    fop.ballot,
+		ID:        fop.ID(),
+		Slot:      assignedSlot,
+		Share:     directCmd.Share,
+		OriBallot: directCmd.OriBallot,
+	})
+}
+
+func (fop *FastOPaxos) coordinatorHandleClientDirectCommand(cmd *paxi.ClientCommand, directCmd *DirectCommand) {
+	if len(directCmd.Command) == 0 {
+		log.Errorf("coordinator needs DirectCommand with clear value")
+		return
+	}
+
+	var newEntry *entry
+	var assignedSlot int
+
+	// Handle if we already assigned slot for the command.
+	// This happens if the coordinator receives P2b from other nodes
+	// *before* receiving DirectCommand from client.
+	if s, exist := fop.oriBalToSlot[directCmd.OriBallot]; exist {
+		if _, ok := fop.log[s]; !ok {
+			log.Errorf("already assigned slot number but entry is nil?")
+			return
+		}
+		newEntry = fop.log[s]
+		newEntry.secretSharedCommand = directCmd.Share
+		newEntry.command = directCmd.Command
+		newEntry.commandHandler = cmd
+		assignedSlot = s
+	} else {
+		newEntry = &entry{
+			ballot:              fop.ballot,
+			oriBallot:           directCmd.OriBallot,
+			commit:              false,
+			secretSharedCommand: directCmd.Share,
+			quorum:              paxi.NewQuorum(),
+			command:             directCmd.Command,
+			commandHandler:      cmd,
+		}
+		fop.slot++
+		assignedSlot = fop.slot
+		fop.log[assignedSlot] = newEntry
+	}
+
+	newEntry.quorum.ACK(fop.ID())
+
+	// handle if this is the QF-th proposal's response
+	if newEntry.quorum.Total() >= fop.numQF {
+		// when all the numQF accepted the fast-proposal
+		// the coordinator directly commit the value
+		if newEntry.quorum.Size() >= fop.numQF {
+			newEntry.commit = true
+			fop.exec() // exec and remove entry from log
+			fop.broadcastCommit(assignedSlot, newEntry)
+		} else {
+			fop.recoveryProcess(assignedSlot)
 		}
 	}
-
-	log.Warningf("fast-proposal slot=%s props=%v", fop.slot, proposals)
-
-	// broadcast the proposals
-	fop.MulticastUniqueMessage(proposals)
 }
 
-func (fop *FastOPaxos) handleProtocolMessages(pmsg interface{}) {
+func (fop *FastOPaxos) handleProtocolMessage(pmsg interface{}) {
 	switch pmsg.(type) {
 	case P2a:
-		fop.handleP2a(pmsg.(P2a))
-		break
+		panic("unimplemented")
+
 	case P2b:
 		fop.handleP2b(pmsg.(P2b))
 		break
+
 	case P3:
-		fop.handleP3(pmsg.(P3))
+		fop.handleCommitMessage(pmsg.(P3))
+
 	}
-}
-
-func (fop *FastOPaxos) handleP2a(m P2a) {
-	// handle fast-proposal
-	if m.Fast {
-		fop.handleFastP2a(m)
-		return
-	}
-
-	// handle classic proposal, the ballot need to be considered.
-	// preparing response data for the proposer
-	resp := P2b{
-		Fast:   false,
-		Ballot: m.Ballot,
-		ID:     fop.ID(),
-		Slot:   m.Slot,
-	}
-
-	e, exists := fop.log[m.Slot]
-	// ignore (reject) if the proposal has lower ballot number
-	if exists && m.Ballot < e.ballot {
-		resp.Ballot = e.ballot
-
-		e.History = append(e.History, fmt.Sprintf("%s %d %d: reject classic proposal w lower b=%s", fop.ID(), time.Now().Unix(), m.Slot, m.Ballot))
-		resp.History = e.History
-
-		fop.Send(m.Ballot.ID(), resp)
-		return
-	}
-
-	// accept the proposal, update the highest proposal ballot,
-	// update the value and accepted ballot in the proposed slot
-	fop.maxBallot = m.Ballot
-	fop.slot = paxi.Max(fop.slot, m.Slot)
-	if exists {
-		// TODO: nullify or update the command
-		//if e.oriBallot != m.OriBallot && e.command != nil {
-		//	cmdBuff := []byte(*e.command.BytesCommand)
-		//	if e.commit && !bytes.Equal(cmdBuff, m.Share) {
-		//		log.Errorf("safety violation! committed value is updated with different value. %v -> %v", cmdBuff, m.Share)
-		//	}
-		//	// bc := paxi.BytesCommand(m.Share)
-		//	// e.command.BytesCommand = &(bc) // TODO: nullify the command
-		//}
-
-		e.ballot = m.Ballot // update the accepted ballot number
-		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal w with b=%s ob=%s vid=%s ssval=%x",
-			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, m.Share))
-		if e.oriBallot != m.OriBallot {
-			//e.ssVal = m.Share       // update the accepted secret-share
-			e.oriBallot = m.OriBallot // update the accepted original-ballot
-		}
-		e.History = append(e.History, fmt.Sprintf("%s %d %d: accept classic proposal without update b=%s ob=%s vid=%s ssval=%x",
-			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.ValID, e.ssVal))
-		resp.History = e.History
-		e.valID = m.ValID
-		resp.ValID = m.ValID
-
-	} else {
-		fop.log[m.Slot] = &entry{
-			ballot:    m.Ballot,
-			isFast:    false,
-			command:   nil,
-			ssVal:     m.Share,
-			oriBallot: m.OriBallot,
-			commit:    false,
-			quorum:    paxi.NewQuorum(),
-			valID:     m.ValID,
-		}
-
-		fop.log[m.Slot].History = append(fop.log[m.Slot].History, fmt.Sprintf("%s %d %d: (classic) accepted & created proposal w with b=%s ob=%s ssval=%x",
-			fop.ID(), time.Now().Unix(), m.Slot, m.Ballot, m.OriBallot, m.Share))
-		resp.History = fop.log[m.Slot].History
-		resp.ValID = m.ValID
-	}
-
-	fop.Send(m.Ballot.ID(), resp)
-}
-
-func (fop *FastOPaxos) handleFastP2a(m P2a) {
-	resp := P2b{
-		Fast:      true,
-		Ballot:    m.Ballot, // resp.Ballot == e.ballot means acceptance
-		ID:        fop.ID(),
-		Slot:      m.Slot,
-		Command:   nil,
-		OriBallot: m.OriBallot,
-		ValID:     m.ValID,
-	}
-
-	fop.slot = paxi.Max(fop.slot, m.Slot)
-
-	if e, exists := fop.log[m.Slot]; exists && e.ssVal != nil {
-		// this acceptor already accepted value for this slot
-		// rejecting the fast-proposal
-		// resp.Ballot != e.ballot means rejection
-		resp.Ballot = e.ballot
-		resp.Command = e.ssVal
-		resp.OriBallot = e.oriBallot
-		e.History = append(e.History, fmt.Sprintf("%s %d %d: reject other fast proposal %s", fop.ID(), time.Now().Unix(), m.Slot, m))
-		resp.History = e.History
-		resp.ValID = e.valID
-	} else {
-		// no secret-share was accepted before, so this acceptor
-		// is accepting the share, regardless the ballot number
-		fop.log[m.Slot] = &entry{
-			ballot:    m.Ballot,
-			isFast:    true,
-			ssVal:     m.Share,
-			oriBallot: m.OriBallot,
-			commit:    false,
-			quorum:    paxi.NewQuorum(),
-			shares:    nil,
-			valID:     m.ValID,
-		}
-		fop.log[m.Slot].History = append(
-			fop.log[m.Slot].History,
-			fmt.Sprintf("%s %d %d: (fast) accepted & created with b=%s ob=%s vid=%s ssval=%x",
-				fop.ID(),
-				time.Now().Unix(),
-				m.Slot,
-				m.Ballot,
-				m.OriBallot,
-				m.ValID,
-				fop.log[m.Slot].ssVal))
-
-		resp.History = fop.log[m.Slot].History
-	}
-
-	// send proposal's response back to proposer
-	fop.Send(m.Ballot.ID(), resp)
 }
 
 func (fop *FastOPaxos) handleP2b(m P2b) {
-	log.Debugf("s=%d e=%d | handling proposal's response %v", fop.slot, fop.execute, m)
+	// ignore outdated or future leadership term
+	if m.Ballot != fop.ballot || m.Slot < fop.execute || !fop.isCoordinator {
+		log.Debugf("ignoring outdated or future proposal's response: %s", m)
+		return
+	}
 
-	// ignore old proposal's response
 	e, exist := fop.log[m.Slot]
-	if !exist || e.commit {
-		return
-	}
-
-	// handle fast proposal
-	if m.Fast {
-		if e.isFast {
-			fop.handleFastP2b(m)
+	if !exist {
+		log.Warningf("receives P2b from other nodes before DirectCommand from client: s=%d b=%s bo=%s",
+			m.Slot, m.Ballot, m.OriBallot)
+		// potentially receive P2b from an acceptor before
+		// this coordinator receive DirectCommand from client
+		e = &entry{
+			ballot:              m.Ballot,
+			oriBallot:           m.OriBallot,
+			commit:              false,
+			secretSharedCommand: nil,
+			quorum:              paxi.NewQuorum(),
+			command:             nil,
+			commandHandler:      nil,
 		}
+		fop.log[m.Slot] = e
+		fop.slot = paxi.Max(fop.slot, m.Slot)
+
+		if _, ok := fop.oriBalToSlot[m.OriBallot]; !ok {
+			fop.oriBalToSlot[m.OriBallot] = m.Slot
+		}
+	}
+	if exist && e.commit {
+		log.Debugf("ignoring committed proposal: %s", m)
 		return
 	}
 
-	log.Debugf("handle responses of classic proposal slot=%d b=%s | %d vs %d vs %d", m.Slot, e.ballot, e.quorum.Total(), e.quorum.Size(), fop.numQ2)
-	if e.quorum.Total() >= fop.numQ2 {
-		return
-	}
+	log.Debugf("s=%d e=%d | handling proposal's response: %s", fop.slot, fop.execute, m)
 
-	if m.Ballot == e.ballot {
-		log.Debugf("ack classic proposal's response slot=%d b=%s", m.Slot, e.ballot)
+	e.propResponses = append(e.propResponses, &m)
+	if m.OriBallot == e.oriBallot {
 		e.quorum.ACK(m.ID)
 	} else {
-		log.Debugf("nack classic proposal's response slot=%d b=%s", m.Slot, e.ballot)
 		e.quorum.NACK(m.ID)
 	}
 
-	if e.quorum.Total() == fop.numQ2 {
-		log.Debugf("act for classic proposal slot=%d b=%s", m.Slot, e.ballot)
-		if fop.Q2(e.quorum) {
-			log.Debugf("committing ...")
-			e.commit = true
-			fop.Broadcast(P3{
-				Ballot:    m.Ballot,
-				Slot:      m.Slot,
-				Command:   e.command,
-				OriBallot: e.oriBallot,
-			})
-			fop.exec()
-			return
-		}
-
-		log.Warningf("TODO: Need to retry with higher ballot number in another slot")
-		if e.command != nil && e.commandHandler != nil && m.Ballot.ID() != fop.ID() {
-			fop.sendFailureResponse(e)
-		}
-
-		// increase the ballot number
-		if fop.maxBallot > fop.ballot {
-			fop.ballot = fop.maxBallot
-		}
-		fop.ballot.Next(fop.ID())
-	}
-}
-
-func (fop *FastOPaxos) handleFastP2b(m P2b) {
-	e := fop.log[m.Slot]
-
-	// ignore if enough response already received
 	if e.quorum.Total() >= fop.numQF {
-		return
-	}
-
-	log.Debugf("handling fast-proposal's response %v [%d]", m, e.quorum.Total())
-
-	if m.Command == nil {
-		// the fast-proposal is accepted
-		e.quorum.ACK(m.ID)
-
-	} else {
-		// the fast-proposal is rejected (other value was accepted previously)
-		e.quorum.NACK(m.ID)
-
-		// store the value with the highest accepted ballot
-		// this will be used for recovery
-		otherShare := &CommandShare{
-			Ballot:    m.Ballot,
-			OriBallot: m.OriBallot,
-			Share:     m.Command,
-			ID:        m.ID,
-			History:   m.History,
-			ValID:     m.ValID,
-		}
-		e.shares = append(e.shares, otherShare)
-	}
-
-	// the proposer can act when enough responses are received
-	if e.quorum.Total() == fop.numQF {
-		log.Debugf("s=%d act for fast proposal (%d vs %d)", m.Slot, e.quorum.Size(), fop.numQF)
-
 		// when all the numQF accepted the fast-proposal
-		// this proposer can directly commit the value
-		if e.quorum.Size() == fop.numQF {
-			if e.command == nil {
-				log.Errorf("want to commit but command is empty slot=%d b=%s", m.Slot, m.Ballot)
-				log.Fatalf("empty cmd %v", e)
+		// the coordinator directly commit the value
+		if e.quorum.Size() >= fop.numQF {
+
+			if len(e.command) == 0 {
+				log.Warningf("want to commit and execute but command is empty, waiting for the DirectCommand | s=%d bo=%s",
+					m.Slot, e.oriBallot)
+				return
 			}
+
 			e.commit = true
-			fop.Broadcast(P3{
-				Ballot:    m.Ballot,
-				Slot:      m.Slot,
-				Command:   e.command, // TODO: hide this from untrusted node
-				OriBallot: e.oriBallot,
-			})
-			fop.exec()
-			return
+			fop.exec() // exec and remove entry from log
+			fop.broadcastCommit(m.Slot, e)
+		} else {
+			fop.recoveryProcess(m.Slot)
 		}
-
-		// conflict happened: less than numQF acceptors accepted the fast-proposal
-		// fallback to classical proposal
-		log.Warningf("conflict happened in slot=%d (b=%s vs %s) need to fallback to classic phase2", m.Slot, fop.ballot, e.ballot)
-
-		// find the highest ballot from the response
-		highestBallot := e.shares[0].Ballot
-		highestShareIdx := 0
-		for i, s := range e.shares {
-			if s.Ballot > highestBallot {
-				highestBallot = s.Ballot
-				highestShareIdx = i
-			}
-		}
-		log.Warningf("highestBallot=%s oriBallot=%s", highestBallot, e.shares[highestShareIdx].OriBallot)
-
-		// find T shares with the same original-ballot as the share
-		// with the highest ballot
-		recoveryShares := make([][]byte, 0)
-		i := 0
-		for _, s := range e.shares {
-			log.Debugf("++++++++ %s: %s %s", s.ID, s.Ballot, s.OriBallot)
-			for _, h := range s.History {
-				log.Debugf("+++++++++ h |-> %s", h)
-			}
-			if s.OriBallot == e.shares[highestShareIdx].OriBallot {
-				recoveryShares = append(recoveryShares, make([]byte, len(s.Share)))
-				recoveryShares[i] = make([]byte, len(s.Share))
-				copy(recoveryShares[i], s.Share)
-				i++
-			}
-		}
-
-		// let the "winner" proposer repropose the value
-		// for the slot, if this is not the winner proposer
-		// then send failure response to client
-		if highestBallot > fop.ballot {
-			log.Warningf("other proposer with ballot %s make the value chosen in slot %d | hb=%s id=%s", e.ballot, m.Slot, highestBallot, fop.ID())
-			if e.command != nil && e.commandHandler != nil {
-				fop.sendFailureResponse(e)
-			}
-			return
-		}
-
-		// if enough shares collected, we need to re-propose the secret value
-		// otherwise we can re-propose the currently held value
-		if len(recoveryShares) == fop.threshold {
-			log.Warningf("reconstructing previous value slot=%d hb=%s ob=%s", m.Slot, highestBallot, e.shares[highestShareIdx].OriBallot)
-			for _, sh := range recoveryShares {
-				log.Warningf("=== %x", sh)
-			}
-
-			startTime := time.Now()
-			newShares, err := shamir.Regenerate(recoveryShares, fop.N)
-			if err != nil {
-				log.Fatalf("failed to regenerate secret-shares: %v", err)
-			}
-			dur := time.Since(startTime)
-			val, err := shamir.Combine(recoveryShares)
-			if err != nil {
-				for _, x := range recoveryShares {
-					log.Errorf("---> %d", len(x))
-				}
-				log.Fatalf("failed to reconstruct a might be chosen value %v", err)
-			}
-			log.Debugf("reconstructed new secret value %x", val)
-			if _, err = paxi.UnmarshalGenericCommand(val); err != nil {
-				log.Fatalf("the reconstructed value is not a valid command: %v", err)
-			}
-
-			// TODO: reuse some of the shares to prevent duplicate
-
-			if e.command == nil {
-				e.command = nil
-			}
-
-			newSharesStruct := make([]opaxos.SecretShare, len(newShares))
-			for j := 0; j < len(newShares); j++ {
-				newSharesStruct[j] = newShares[j]
-			}
-
-			e.ssTime = dur
-			//e. command.SharesBatch = newSharesStruct
-			//bc := paxi.BytesCommand(val)
-			//e.command.BytesCommand = &bc // replace the held command (secret value)
-			e.ssVal = newShares[len(newShares)-1]
-			e.oriBallot = e.shares[highestShareIdx].OriBallot
-			e.valID = e.shares[highestShareIdx].ValID
-
-			e.History = append(
-				e.History,
-				fmt.Sprintf("%s %d %d: update the reconstructed val b=%s ob=%s vid=%s vid(r)=%x ssval=%x",
-					fop.ID(),
-					time.Now().Unix(),
-					m.Slot,
-					e.ballot,
-					e.oriBallot,
-					e.valID,
-					val,
-					e.ssVal))
-
-			fop.sendFailureResponse(e)
-		}
-
-		// re-propose the value with classic proposal
-		//fop.ballot.Next(fop.ID())
-
-		e.quorum.Reset()
-		e.shares = nil
-		e.isFast = false
-		e.ballot = fop.ballot
-		e.History = append(
-			e.History,
-			fmt.Sprintf("%s %d %d: update ballot in fallback b=%s ob=%s ssval=%x",
-				fop.ID(),
-				time.Now().Unix(),
-				m.Slot,
-				e.ballot,
-				e.oriBallot,
-				e.ssVal))
-
-		e.quorum.ACK(fop.ID())
-		fop.maxBallot = fop.ballot
-
-		// prepare the classic proposal
-		log.Debugf("preparing classic proposal slot=%d b=%s ob=%s", m.Slot, fop.ballot, e.oriBallot)
-		proposals := make([]interface{}, len(e.command)-1)
-		for j := 0; j < len(e.command)-1; j++ {
-			proposals[j] = P2a{
-				Fast:      false,
-				Ballot:    fop.ballot,
-				Slot:      m.Slot,
-				Share:     e.command,
-				OriBallot: e.oriBallot,
-				ValID:     e.valID,
-			}
-		}
-
-		// send the classic proposal
-		fop.MulticastUniqueMessage(proposals)
 	}
 }
 
-func (fop *FastOPaxos) handleP3(m P3) {
-	//bc := paxi.BytesCommand(m.Share)
-	if _, exists := fop.log[m.Slot]; !exists {
-		fop.log[m.Slot] = &entry{
-			ballot:    m.Ballot,
-			isFast:    false,
-			oriBallot: m.OriBallot,
-			commit:    true,
-			quorum:    paxi.NewQuorum(),
-			shares:    nil,
+// TODO: conflict happened, need to do recovery
+func (fop *FastOPaxos) recoveryProcess(slot int) {
+	log.Errorf("conflicted commands: %v", fop.log[slot].propResponses)
+	panic("unimplemented")
+}
+
+func (fop *FastOPaxos) broadcastCommit(slot int, e *entry) {
+	log.Debugf("broadcasting commit, slot=%d b=%s bo=%s", slot, fop.ballot, e.oriBallot)
+
+	// Clear command is sent to fellow trusted nodes, so they
+	// can also execute the command.
+	for trustedNodeID := range fop.trustedNodeIDs {
+		if trustedNodeID == fop.ID() {
+			continue
 		}
-		fop.log[m.Slot].History = append(
-			fop.log[m.Slot].History,
-			fmt.Sprintf("%s %d %d: accepted & created via commit with b=%s ob=%s ssval=%x",
-				fop.ID(),
-				time.Now().Unix(),
-				m.Slot,
-				m.Ballot,
-				m.OriBallot,
-				fop.log[m.Slot].ssVal))
+		fop.Send(trustedNodeID, P3{
+			Ballot:    fop.ballot,
+			Slot:      slot,
+			Command:   e.command,
+			OriBallot: e.oriBallot,
+		})
 	}
+	for untrustedNodeID := range fop.untrustedNodeIDs {
+		fop.Send(untrustedNodeID, P3{
+			Ballot:    fop.ballot,
+			Slot:      slot,
+			Command:   nil,
+			OriBallot: e.oriBallot,
+		})
+		// For optimization, we don't resend the secret-share in the commit message in this prototype.
+		// For production usage, the proposer might need to send commit message with secret-share to
+		// acceptors whose P2b messages is not in the phase-2 quorum processed; or the acceptors
+		// can contact back the proposer asking the committed secret-share.
+	}
+}
 
+func (fop *FastOPaxos) handleCommitMessage(m P3) {
 	fop.slot = paxi.Max(fop.slot, m.Slot)
-	e := fop.log[m.Slot]
-	e.commit = true
-	e.ballot = m.Ballot
-	e.oriBallot = m.OriBallot
-	if e.quorum != nil {
-		e.quorum.Reset()
+
+	e, exist := fop.log[m.Slot]
+	if exist {
+		if len(m.Command) > 0 {
+			e.command = m.Command
+		}
+		if len(m.Share) > 0 {
+			e.secretSharedCommand = m.Share
+		}
+		e.commit = true
+		e.commandHandler = nil
+	} else {
+		fop.log[m.Slot] = &entry{
+			ballot:              m.Ballot,
+			oriBallot:           m.OriBallot,
+			commit:              true,
+			secretSharedCommand: m.Share,
+			command:             m.Command,
+		}
+
+		log.Warningf("commit comes before client's direct command| s=%d bo=%s", m.Slot, m.OriBallot)
+		if _, ok := fop.oriBalToSlot[m.OriBallot]; !ok {
+			fop.oriBalToSlot[m.OriBallot] = m.Slot
+		}
 	}
-	//if e.command == nil {
-	//	e.command = &opaxos.SecretSharedCommand{}
-	//}
-	//if e.command.ClientBytesCommand == nil {
-	//	e.command.ClientBytesCommand = &paxi.ClientBytesCommand{}
-	//}
-	//e.command.ClientBytesCommand.BytesCommand = &bc
-
-	e.History = append(
-		e.History,
-		fmt.Sprintf("%s %d %d: ballot is updated via commit b=%s ob=%s ssval=%x",
-			fop.ID(),
-			time.Now().Unix(),
-			m.Slot,
-			m.Ballot,
-			m.OriBallot,
-			fop.log[m.Slot].ssVal))
-
-	// if the command is not from this node, send failure response
-	//if e.command.RPCMessage != nil && m.Ballot.ID() != fop.ID() {
-	//	failResp := paxi.CommandReply{
-	//		OK:     false,
-	//		Ballot: fop.ballot.String(),
-	//	}
-	//	err := e.command.RPCMessage.SendBytesReply(failResp.Serialize())
-	//	if err != nil {
-	//		log.Errorf("fail to reply to client %v", err)
-	//	}
-	//	e.command.RPCMessage = nil
-	//}
 
 	fop.exec()
 }
@@ -633,18 +436,64 @@ func (fop *FastOPaxos) exec() {
 			break
 		}
 
-		//cmdReply := fop.execCommand(e.command.BytesCommand, e)
-		//
-		//if e.command.RPCMessage != nil && e.command.RPCMessage.Reply != nil {
-		//	err := e.command.RPCMessage.SendBytesReply(cmdReply.Serialize())
-		//	if err != nil {
-		//		log.Errorf("failed to send CommandReply %s", err)
-		//	}
-		//	e.command.RPCMessage = nil
-		//}
+		// a non-trusted node does not execute the command
+		if !fop.isTrusted {
+			fop.execute++
+			continue
+		}
+
+		if len(e.command) == 0 {
+			log.Errorf("command is empty, can not execute the command. s=%d b=%s bo=%s", fop.execute, e.ballot, e.oriBallot)
+			return
+		}
+
+		// prepare response for client
+		reply := &paxi.CommandReply{
+			Code:   paxi.CommandReplyOK,
+			SentAt: 0,
+			Data:   nil,
+		}
+
+		// parse command
+		var cmd paxi.Command
+		cmdType := paxi.GetDBCommandTypeFromBuffer(e.command)
+		switch cmdType {
+		case paxi.TypeDBGetCommand:
+			dbCmd := paxi.DeserializeDBCommandGet(e.command)
+			cmd.Key = dbCmd.Key
+			reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+		case paxi.TypeDBPutCommand:
+			dbCmd := paxi.DeserializeDBCommandPut(e.command)
+			cmd.Key = dbCmd.Key
+			cmd.Value = dbCmd.Value
+			reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+		default:
+			log.Errorf("unknown client db command")
+			reply.Code = paxi.CommandReplyErr
+			reply.Data = []byte("unknown client db command")
+			return
+		}
+
+		value := fop.Execute(cmd)
+
+		// reply with data for write operation
+		if cmd.Value == nil {
+			reply.Data = value
+		}
+
+		log.Debugf("cmd executed: op=%d key=%v, value=%x", cmdType, cmd.Key, value)
+		if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
+			log.Debugf("send reply to client: %v", reply)
+			err := e.commandHandler.Reply(reply)
+			if err != nil {
+				log.Errorf("failed to send CommandReply: %v", err)
+			}
+		} else {
+			log.Warningf("not sending result to client: %v", e)
+		}
 
 		// clean the slot after the command is executed
-		//delete(fop.log, fop.execute)
+		delete(fop.log, fop.execute)
 		fop.execute++
 	}
 }
