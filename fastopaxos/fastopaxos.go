@@ -149,6 +149,29 @@ func (fop *FastOPaxos) run() {
 		select {
 		case dcmd := <-fop.rawCommands:
 			fop.handleClientDirectCommand(dcmd)
+			numDCmd := len(fop.rawCommands)
+			for numDCmd > 0 {
+				fop.handleClientDirectCommand(<-fop.rawCommands)
+				numDCmd--
+			}
+			break
+
+		case pMsg := <-fop.protocolMessages:
+			fop.handleProtocolMessage(pMsg)
+			numPMsg := len(fop.protocolMessages)
+			for numPMsg > 0 {
+				fop.handleProtocolMessage(<-fop.protocolMessages)
+				numPMsg--
+			}
+			break
+
+		case pMsg := <-fop.protocolMessages:
+			fop.handleProtocolMessage(pMsg)
+			numPMsg := len(fop.protocolMessages)
+			for numPMsg > 0 {
+				fop.handleProtocolMessage(<-fop.protocolMessages)
+				numPMsg--
+			}
 			break
 
 		case pMsg := <-fop.protocolMessages:
