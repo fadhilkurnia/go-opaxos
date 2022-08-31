@@ -438,6 +438,13 @@ func (fop *FastOPaxos) exec() {
 
 		// a non-trusted node does not execute the command
 		if !fop.isTrusted {
+			// has not received the DirectCommand from client
+			if len(e.secretSharedCommand) == 0 {
+				return
+			}
+
+			// already received the DirectCommand before commit
+			delete(fop.log, fop.execute)
 			fop.execute++
 			continue
 		}
