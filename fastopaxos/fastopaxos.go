@@ -147,19 +147,23 @@ func (fop *FastOPaxos) run() {
 	var err error
 	for err == nil {
 		select {
-		case dcmd := <- fop.rawCommands:
+		case dcmd := <-fop.rawCommands:
 			fop.handleClientDirectCommand(dcmd)
 			break
 
 		case pMsg := <-fop.protocolMessages:
 			fop.handleProtocolMessage(pMsg)
+			numPMsg := len(fop.protocolMessages)
+			for numPMsg > 0 {
+				fop.handleProtocolMessage(<-fop.protocolMessages)
+				numPMsg--
+			}
 			break
 		}
 	}
 
 	panic(fmt.Sprintf("fastopaxos instance exited its main loop: %v", err))
 }
-
 
 // handleClientDirectCommand need to handle several cases:
 // For the coordinator:
