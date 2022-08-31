@@ -22,7 +22,7 @@
     },
     "protocol": {
         "name": "opaxos",
-        "secret_sharing": "ssms",
+        "secret_sharing": "shamir",
         "threshold": 2,
         "quorum_1": 4,
         "quorum_2": 3,

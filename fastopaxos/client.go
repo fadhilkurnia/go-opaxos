@@ -5,6 +5,7 @@ import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/ailidani/paxi/opaxos"
+	"runtime"
 	"time"
 )
 
@@ -12,12 +13,20 @@ import (
 type Client struct {
 	paxi.Client
 
-	clientID      paxi.ID
-	ballot        Ballot
-	lastCmdID     int
-	nodeClients   map[paxi.ID]*paxi.TCPClient
-	ssWorker      opaxos.SecretSharingWorker
+	clientID    paxi.ID
+	ballot      Ballot
+	lastCmdID   int
+	nodeClients map[paxi.ID]*paxi.TCPClient
+
+	ssAlgorithm   string
+	threshold     int
+	numWorker     int
+	ssJobs        chan *RawDirectCommandBallot
+	broadcasts    chan *BroadcastDirectCommand
 	coordinatorID paxi.ID
+	nodeIDs       []paxi.ID
+
+	defSSWorker ClientSSWorker
 
 	// fields for AsyncClient
 	responseChan chan *paxi.CommandReply
@@ -29,14 +38,33 @@ func NewClient() *Client {
 	clientID := paxi.NewID(99, time.Now().Nanosecond())
 	algorithm := fastOPaxosCfg.Protocol.SecretSharing
 	numNodes := config.N()
-	threshold := fastOPaxosCfg.Threshold
+	threshold := fastOPaxosCfg.Protocol.Threshold
+
+	// by default 1.1 is the coordinator
+	coordID := paxi.NewID(1, 1)
+	nodeIDs := make([]paxi.ID, 0)
+
+	for id, _ := range config.PublicAddrs {
+		nodeIDs = append(nodeIDs, id)
+	}
+
+	if len(nodeIDs) != numNodes {
+		log.Errorf("there must be %d node address", numNodes)
+	}
 
 	client := &Client{
-		clientID:    clientID,
-		ballot:      NewBallot(0, false, clientID),
-		lastCmdID:   0,
-		nodeClients: make(map[paxi.ID]*paxi.TCPClient),
-		ssWorker:    opaxos.NewWorker(algorithm, numNodes, int(threshold)),
+		clientID:      clientID,
+		ballot:        NewBallot(0, false, clientID),
+		lastCmdID:     0,
+		nodeClients:   make(map[paxi.ID]*paxi.TCPClient),
+		ssAlgorithm:   algorithm,
+		threshold:     threshold,
+		numWorker:     runtime.NumCPU(),
+		defSSWorker:   NewWorker(algorithm, threshold, coordID, nodeIDs),
+		nodeIDs:       nodeIDs,
+		coordinatorID: coordID,
+		ssJobs:        make(chan *RawDirectCommandBallot, config.ChanBufferSize),
+		broadcasts:    make(chan *BroadcastDirectCommand, config.ChanBufferSize),
 	}
 
 	// initialize connection to all the nodes
@@ -44,10 +72,29 @@ func NewClient() *Client {
 		client.nodeClients[id] = paxi.NewTCPClient(id).Start()
 	}
 
-	// by default 1.1 is the coordinator
-	client.coordinatorID = paxi.NewID(1, 1)
+	// start and run the secret-sharing workers
+	client.initRunSSWorkers()
+	go client.consumeSendSecretSharedCommand()
 
 	return client
+}
+
+func (c *Client) initRunSSWorkers() {
+	for i := 0; i < c.numWorker; i++ {
+		w := NewWorker(c.ssAlgorithm, c.threshold, c.coordinatorID, c.nodeIDs)
+		go w.StartProcessingInput(c.ssJobs, c.broadcasts)
+	}
+}
+
+func (c *Client) consumeSendSecretSharedCommand() {
+	for bcast := range c.broadcasts {
+		for id, _ := range c.nodeClients {
+			err := c.nodeClients[id].SendCommand(bcast.DirectCommands[id])
+			if err != nil {
+				log.Errorf("failed to send DirectCommand to %s: %s", id, err)
+			}
+		}
+	}
 }
 
 // Get implements paxi.Client interface
@@ -98,7 +145,7 @@ func (c *Client) doDirectCommand(cmdBuff []byte) (*paxi.CommandReply, error) {
 	c.ballot.Next(c.clientID)
 
 	// secret-shares the command
-	cmdShares, _, err := c.ssWorker.SecretShareCommand(cmdBuff)
+	cmdShares, _, err := c.defSSWorker.SecretShareCommand(cmdBuff)
 	if err != nil {
 		log.Errorf("failed to secret-share the command: %s", err)
 		return nil, err
@@ -166,49 +213,19 @@ func (c *Client) SendCommand(cmd paxi.SerializableCommand) error {
 		return errors.New("unknown command type")
 	}
 
-	return c.sendDirectCommand(cmd.Serialize())
+	return c.sendDirectCommand(cmd)
 }
 
 func (c *Client) GetResponseChannel() chan *paxi.CommandReply {
 	return c.responseChan
 }
 
-func (c *Client) sendDirectCommand(cmdBuff []byte) error {
+func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 	c.ballot.Next(c.clientID)
 
-	// secret-shares the command
-	cmdShares, _, err := c.ssWorker.SecretShareCommand(cmdBuff)
-	if err != nil {
-		log.Errorf("failed to secret-share the command: %s", err)
-		return err
-	}
-
-	// prepare DirectCommand for all the nodes
-	directCmds := make(map[paxi.ID]*DirectCommand)
-	sid := 0
-	for id, _ := range c.nodeClients {
-		dcmd := DirectCommand{
-			OriBallot: c.ballot,
-			Share:     SecretShare(cmdShares[sid]),
-			Command:   nil,
-		}
-		if c.coordinatorID == id {
-			dcmd.Command = cmdBuff
-		}
-		directCmds[id] = &dcmd
-		sid++
-	}
-
-	// send command directly to all the nodes
-	sid = 0
-	if c.responseChan == nil {
-		c.responseChan = c.nodeClients[c.coordinatorID].GetResponseChannel()
-	}
-	for id, _ := range c.nodeClients {
-		err = c.nodeClients[id].SendCommand(directCmds[id])
-		if err != nil {
-			log.Errorf("failed to send DirectCommand to %s: %s", id, err)
-		}
+	c.ssJobs <- &RawDirectCommandBallot{
+		OriginalBallot: c.ballot,
+		Command:        cmd,
 	}
 
 	return nil
