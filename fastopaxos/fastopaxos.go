@@ -221,14 +221,16 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		fop.log[assignedSlot] = newEntry
 	}
 
-	// Send P2b to the coordinator
-	fop.Send(fop.ballot.ID(), P2b{
-		Ballot:    fop.ballot,
-		ID:        fop.ID(),
-		Slot:      assignedSlot,
-		Share:     directCmd.Share,
-		OriBallot: directCmd.OriBallot,
-	})
+	// Send P2b to the coordinator, if the value is not committed yet
+	if fop.log[assignedSlot].commit == false {
+		fop.Send(fop.ballot.ID(), P2b{
+			Ballot:    fop.ballot,
+			ID:        fop.ID(),
+			Slot:      assignedSlot,
+			Share:     directCmd.Share,
+			OriBallot: directCmd.OriBallot,
+		})
+	}
 }
 
 func (fop *FastOPaxos) coordinatorHandleClientDirectCommand(cmd *paxi.ClientCommand, directCmd *DirectCommand) {
