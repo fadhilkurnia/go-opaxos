@@ -198,7 +198,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	var assignedSlot int
 
 	if existingSlot, exist := fop.oriBalToSlot[directCmd.OriBallot]; exist {
-		// out-of-order case: DirectCommand received before commit from the coordinator
+		// out-of-order case: DirectCommand received after commit from the coordinator
 		log.Warningf("receiving DirectCommand after assigned| s=%d bo=%s", existingSlot, directCmd.OriBallot)
 		assignedSlot = existingSlot
 		newEntry = fop.log[existingSlot]
@@ -253,6 +253,8 @@ func (fop *FastOPaxos) coordinatorHandleClientDirectCommand(cmd *paxi.ClientComm
 		newEntry.command = directCmd.Command
 		newEntry.commandHandler = cmd
 		assignedSlot = s
+
+		delete(fop.oriBalToSlot, directCmd.OriBallot)
 	} else {
 		newEntry = &entry{
 			ballot:              fop.ballot,
@@ -324,9 +326,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		fop.log[m.Slot] = e
 		fop.slot = paxi.Max(fop.slot, m.Slot)
 
-		if _, ok := fop.oriBalToSlot[m.OriBallot]; !ok {
-			fop.oriBalToSlot[m.OriBallot] = m.Slot
-		}
+		fop.oriBalToSlot[m.OriBallot] = m.Slot
 	}
 	if exist && e.commit {
 		log.Debugf("ignoring committed proposal: %s", m)
