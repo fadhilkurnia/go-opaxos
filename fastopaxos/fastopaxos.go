@@ -161,10 +161,13 @@ func (fop *FastOPaxos) run() {
 
 		case pMsg := <-fop.protocolMessages:
 			fop.handleProtocolMessage(pMsg)
-			numPMsg := len(fop.protocolMessages)
-			for numPMsg > 0 {
-				fop.handleProtocolMessage(<-fop.protocolMessages)
-				numPMsg--
+
+			if fop.isCoordinator {
+				numPMsg := len(fop.protocolMessages)
+				for numPMsg > 0 {
+					fop.handleProtocolMessage(<-fop.protocolMessages)
+					numPMsg--
+				}
 			}
 			break
 

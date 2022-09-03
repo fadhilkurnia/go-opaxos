@@ -34,45 +34,6 @@ func replica(id paxi.ID) {
 	case "paxos":
 		paxos.NewReplica(id).RunWithChannel()
 
-	case "epaxos":
-		panic("epaxos is unimplemented")
-
-	case "sdpaxos":
-		panic("sdpaxos is unimplemented")
-
-	case "wpaxos":
-		panic("wpaxos is unimplemented")
-
-	case "abd":
-		panic("abd is unimplemented")
-
-	case "chain":
-		panic("chain_replication is unimplemented")
-
-	case "vpaxos":
-		panic("vpaxos is unimplemented")
-
-	case "wankeeper":
-		panic("wankeeper is unimplemented")
-
-	case "kpaxos":
-		panic("kpaxos is unimplemented")
-
-	case "paxos_groups":
-		panic("paxos_groups is unimplemented")
-
-	case "dynamo":
-		panic("dynamo is unimplemented")
-
-	case "blockchain":
-		panic("blockchain is unimplemented")
-
-	case "m2paxos":
-		panic("m2paxos is unimplemented")
-
-	case "hpaxos":
-		panic("hpaxos is unimplemented")
-
 	case "opaxos":
 		opaxos.NewReplica(id).RunWithWorker()
 

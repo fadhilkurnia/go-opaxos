@@ -1,10 +1,11 @@
 package fastopaxos
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/encoder"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 func init() {
@@ -57,57 +58,54 @@ type DirectCommand struct {
 	Command   []byte      `msgpack:"c,omitempty"` // the command in a clear form, intended for the coordinator
 }
 
-func (c DirectCommand) Serialize() []byte {
-	buff, _ := msgpack.Marshal(c)
-	return buff
-}
-
 func (c DirectCommand) GetCommandType() byte {
 	return paxi.TypeOtherCommand
 }
 
-func DeserializeDirectCommand(buff []byte) (*DirectCommand, error) {
-	cmd := DirectCommand{}
-	if err := msgpack.Unmarshal(buff, &cmd); err != nil {
-		return nil, err
-	}
-	return &cmd, nil
+func (c DirectCommand) String() string {
+	return fmt.Sprintf("DirectCmd{o:%s, v:%x c:%x}", c.OriBallot, c.Share, c.Command)
 }
 
-// TODO: move from msgpack to manually serialize the command
-// TODO for better performance when checking the DirectCommand's type
-//func (c *DirectCommand) Serialize() []byte {
-//	lenShare := len(c.Share)
-//	lenCmd := len(c.Command)
-//
-//	// 1 byte for direct command type
-//	// 8 bytes for the command identifier / original-ballot
-//	// 2 bytes for share's length (uint16)
-//	// lenShare bytes for the share
-//	// lenCmd bytes for the clear command
-//	buff := make([]byte, 1+8+2+lenShare+lenCmd)
-//	if lenCmd == 0 {
-//		buff[0] = DirectCommandAcceptor
-//	} else {
-//		buff[0] = DirectCommandAcceptor
-//	}
-//	binary.BigEndian.PutUint64(buff[1:9], uint64(c.OriBallot))
-//	binary.BigEndian.PutUint16(buff[9:11], uint16(lenShare))
-//	if lenShare != 0 {
-//		copy(buff[9:9+lenShare], c.Share)
-//	}
-//	if lenCmd != 0 {
-//		copy(buff[9+lenShare:9+lenShare+lenCmd], c.Command)
-//	}
-//
-//	return buff
-//}
-//
-//func DeserializeDirectCommand(buff []byte) *DirectCommand {
-//	cmd := &DirectCommand{}
-//
-//	return cmd
-//}
+func (c *DirectCommand) Serialize() []byte {
+	lenShare := len(c.Share)
+	lenCmd := len(c.Command)
+
+	// 8 bytes for the command identifier / original-ballot
+	// 2 bytes for share's length (uint16)
+	// lenShare bytes for the share
+	// lenCmd bytes for the clear command
+	buff := make([]byte, 8+2+lenShare+lenCmd)
+	binary.BigEndian.PutUint64(buff[0:8], uint64(c.OriBallot))
+	binary.BigEndian.PutUint16(buff[8:10], uint16(lenShare))
+	if lenShare > 0 {
+		copy(buff[10:10+lenShare], c.Share)
+	}
+	if lenCmd > 0 {
+		copy(buff[10+lenShare:10+lenShare+lenCmd], c.Command)
+	}
+
+	return buff
+}
+
+func DeserializeDirectCommand(buff []byte) (*DirectCommand, error) {
+	cmd := &DirectCommand{}
+	lenBuff := len(buff)
+	if lenBuff < 10 {
+		return nil, errors.New("buffer's length is at least 10")
+	}
+
+	cmd.OriBallot = Ballot(binary.BigEndian.Uint64(buff[0:8]))
+	lenShare := binary.BigEndian.Uint16(buff[8:10])
+	if lenShare > 0 && lenBuff < (int(lenShare)+10) {
+		return nil, errors.New("mismatch share's length")
+	}
+	cmd.Share = buff[10 : 10+lenShare]
+	if lenBuff > (int(lenShare) + 10) {
+		cmd.Command = buff[10+lenShare:]
+	}
+
+	return cmd, nil
+}
 
 // P3 is a commit message
 type P3 struct {

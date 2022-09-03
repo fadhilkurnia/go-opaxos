@@ -1,6 +1,7 @@
 package fastopaxos
 
 import (
+	"bytes"
 	"github.com/ailidani/paxi"
 	"testing"
 )
@@ -31,3 +32,25 @@ func TestBallot(t *testing.T) {
 	}
 }
 
+func TestDirectCommandSerialize(t *testing.T) {
+	cmd := DirectCommand{
+		OriBallot: NewBallot(123, false, paxi.NewID(123, 123)),
+		Share:     []byte("asdasdasdasdasda"),
+		Command:   []byte("1234134jhasdkjha"),
+	}
+
+	buff := cmd.Serialize()
+	ncmd, err := DeserializeDirectCommand(buff)
+	if err != nil {
+		t.Error(err)
+	}
+	if ncmd.OriBallot != cmd.OriBallot {
+		t.Errorf("not matching original-ballot: %s vs %s", ncmd.OriBallot, cmd.OriBallot)
+	}
+	if bytes.Compare(ncmd.Share, cmd.Share) != 0 {
+		t.Errorf("unmatch share")
+	}
+	if bytes.Compare(ncmd.Command, cmd.Command) != 0 {
+		t.Errorf("unmatch command")
+	}
+}
