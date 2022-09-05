@@ -472,7 +472,7 @@ func (fop *FastOPaxos) exec() {
 		}
 
 		if len(e.command) == 0 {
-			log.Errorf("command is empty, can not execute the command. s=%d b=%s bo=%s", fop.execute, e.ballot, e.oriBallot)
+			log.Warningf("command is empty, can not execute the command. s=%d b=%s bo=%s", fop.execute, e.ballot, e.oriBallot)
 			return
 		}
 
