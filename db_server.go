@@ -8,7 +8,6 @@ import (
 	"github.com/ailidani/paxi/log"
 	"io"
 	"net"
-	"net/rpc"
 	"net/url"
 	"os"
 	"os/signal"
@@ -21,9 +20,13 @@ func (n *node) runTCPServer() {
 		log.Fatalf("host public address parse error: %s", err)
 	}
 	port := ":" + rpcAddress.Port()
+	rAddr, err := net.ResolveTCPAddr("tcp", port)
+	if err != nil {
+		log.Fatalf("failed to start tcp host server: %s", err)
+	}
 
-	rpc.HandleHTTP()
-	listener, err := net.Listen("tcp", port)
+	// rpc.HandleHTTP()
+	listener, err := net.ListenTCP("tcp", rAddr)
 	if err != nil {
 		log.Fatalf("failed to start tcp host server: %s", err)
 	}
@@ -34,11 +37,17 @@ func (n *node) runTCPServer() {
 	// accept any incoming TCP connection request from client
 	for {
 		// Accept() blocks until it receive new connection request from client
-		conn, acceptErr := listener.Accept()
+		conn, acceptErr := listener.AcceptTCP()
 		if acceptErr != nil {
-			log.Errorf("failed to accept client init connection request %v", err)
+			log.Errorf("failed to accept client init connection request %v", acceptErr)
 			continue
 		}
+		err = conn.SetNoDelay(false)
+		if err != nil {
+			log.Errorf("failed to configure TCP NO_DELAY", err)
+			continue
+		}
+
 		log.Debugf("client connection accepted, serving with client type: %s", *ClientType)
 
 		go n.handleIncomingCommands(conn)
@@ -79,6 +88,30 @@ func (n *node) runUnixServer() {
 
 		go n.handleIncomingCommands(conn)
 	}
+}
+
+func (n *node) runUDPServer() {
+	rpcAddress, err := url.Parse(config.PublicAddrs[n.id])
+	if err != nil {
+		log.Fatalf("host public address parse error: %s", err)
+	}
+	port := ":" + rpcAddress.Port()
+
+	s, err := net.ResolveUDPAddr("udp", port)
+	if err != nil {
+		log.Fatalf("failed to resolve host address: %s", err)
+	}
+
+	conn, err := net.ListenUDP("udp", s)
+	if err != nil {
+		log.Fatalf("failed to start udp host server: %s", err)
+	}
+	defer conn.Close()
+
+	log.Infof("listening on port %s for client-node communication", port)
+
+	// accept any incoming data
+	go n.handleIncomingCommands(conn)
 }
 
 func (n *node) handleIncomingCommands(conn net.Conn) {

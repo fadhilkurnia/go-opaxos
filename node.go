@@ -128,6 +128,8 @@ func (n *node) Run() {
 		n.runUnixServer()
 	} else if *ClientType == "tcp" {
 		n.runTCPServer()
+	}else if *ClientType == "udp" {
+		n.runUDPServer()
 	} else {
 		log.Fatalf("unknown client-node connection type: %s", *ClientType)
 	}
