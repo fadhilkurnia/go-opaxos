@@ -10,6 +10,7 @@ import (
 // which is used as the command identifier. This struct is used as the input
 // for the secret-sharing worker
 type RawDirectCommandBallot struct {
+	Slot           int
 	OriginalBallot Ballot
 	Command        paxi.SerializableCommand
 }
@@ -46,6 +47,7 @@ func (w *ClientSSWorker) StartProcessingInput(inputChannel chan *RawDirectComman
 		directCmds := make(map[paxi.ID]*DirectCommand)
 		for i, id := range w.nodeIDs {
 			dcmd := DirectCommand{
+				Slot:      cmd.Slot,
 				OriBallot: cmd.OriginalBallot,
 				Share:     SecretShare(ss[i]),
 				Command:   nil,

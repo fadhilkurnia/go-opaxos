@@ -15,6 +15,7 @@ type Client struct {
 
 	clientID    paxi.ID
 	ballot      Ballot
+	targetSlot  int
 	lastCmdID   int
 	nodeClients map[paxi.ID]*paxi.TCPClient
 
@@ -55,6 +56,7 @@ func NewClient() *Client {
 	client := &Client{
 		clientID:      clientID,
 		ballot:        NewBallot(0, false, clientID),
+		targetSlot:    -1,
 		lastCmdID:     0,
 		nodeClients:   make(map[paxi.ID]*paxi.TCPClient),
 		ssAlgorithm:   algorithm,
@@ -143,6 +145,7 @@ func (c *Client) Put2(key paxi.Key, value paxi.Value) (interface{}, error) {
 
 func (c *Client) doDirectCommand(cmdBuff []byte) (*paxi.CommandReply, error) {
 	c.ballot.Next(c.clientID)
+	c.targetSlot++
 
 	// secret-shares the command
 	cmdShares, _, err := c.defSSWorker.SecretShareCommand(cmdBuff)
@@ -156,6 +159,7 @@ func (c *Client) doDirectCommand(cmdBuff []byte) (*paxi.CommandReply, error) {
 	sid := 0
 	for id, _ := range c.nodeClients {
 		dcmd := DirectCommand{
+			Slot:      c.targetSlot,
 			OriBallot: c.ballot,
 			Share:     SecretShare(cmdShares[sid]),
 			Command:   nil,
@@ -222,8 +226,10 @@ func (c *Client) GetResponseChannel() chan *paxi.CommandReply {
 
 func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 	c.ballot.Next(c.clientID)
+	c.targetSlot++
 
 	c.ssJobs <- &RawDirectCommandBallot{
+		Slot:           c.targetSlot,
 		OriginalBallot: c.ballot,
 		Command:        cmd,
 	}
@@ -231,7 +237,6 @@ func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 	return nil
 }
 
-// ClientCreator TODO: implement this for benchmark purposes!
 type ClientCreator struct {
 	paxi.BenchmarkClientCreator
 }
