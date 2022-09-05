@@ -115,7 +115,6 @@ func (b *Benchmark) Run() {
 // It is the original implementation in Paxi. The read and write interface is mainly used
 // for cmd (Paxi's cmd client).
 func (b *Benchmark) RunReadWriteClient() {
-
 	var stop chan bool
 	if b.Move {
 		move := func() { b.Mu = float64(int(b.Mu+1) % b.K) }
@@ -340,7 +339,6 @@ func (b *Benchmark) RunCallbackClient() {
 // RunPipelineClient simple client, we do not gather history
 func (b *Benchmark) RunPipelineClient() {
 	latencies := make(chan time.Duration, 100_000)
-	b.startTime = time.Now()
 
 	// gather the latencies from all clients
 	latWriterWaiter := sync.WaitGroup{}
@@ -352,20 +350,34 @@ func (b *Benchmark) RunPipelineClient() {
 		}
 	}()
 
-	clientWaiter := sync.WaitGroup{}
-	clientID := 0
+	// initialize all the clients, limiters, and key generators
+	clients := make([]AsyncClient, b.BenchmarkConfig.Concurrency)
+	limiters := make([]*lib.Limiter, b.BenchmarkConfig.Concurrency)
+	keyGenerators := make([]*KeyGenerator, b.BenchmarkConfig.Concurrency)
 	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
-		var limiter *lib.Limiter
-		if b.Throttle > 0 {
-			limiter = lib.NewLimiter(b.Throttle)
-		}
-
-		dbClient, err := b.ClientCreator.CreateAsyncClient()
+		// initialize client
+		c, err := b.ClientCreator.CreateAsyncClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
+		clients[i] = c
 
-		keyGen := NewKeyGenerator(b)
+		// initialize limiter
+		if b.Throttle > 0 {
+			limiters[i] = lib.NewLimiter(b.Throttle)
+		}
+
+		// initialize key generator
+		keyGenerators[i] = NewKeyGenerator(b)
+	}
+
+	clientWaiter := sync.WaitGroup{}
+	clientID := 0
+	b.startTime = time.Now()
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
+		dbClient := clients[i]
+		limiter := limiters[i]
+		keyGen := keyGenerators[i]
 
 		// run each client in a separate goroutine
 		clientID++
@@ -514,7 +526,6 @@ func (b *Benchmark) RunPipelineClient() {
 func (b *Benchmark) RunBlockingClient() {
 	latencies := make(chan time.Duration, 100_000)
 	encodeTimes := make(chan time.Duration, 100_000)
-	b.startTime = time.Now()
 
 	// gather the latencies from all clients
 	latWriterWaiter := sync.WaitGroup{}
@@ -533,20 +544,34 @@ func (b *Benchmark) RunBlockingClient() {
 		}
 	}()
 
-	clientWaiter := sync.WaitGroup{}
-	clientID := 0
+	// initialize all the clients, limiters, and key generators
+	clients := make([]AsyncClient, b.BenchmarkConfig.Concurrency)
+	limiters := make([]*lib.Limiter, b.BenchmarkConfig.Concurrency)
+	keyGenerators := make([]*KeyGenerator, b.BenchmarkConfig.Concurrency)
 	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
-		var limiter *lib.Limiter
-		if b.Throttle > 0 {
-			limiter = lib.NewLimiter(b.Throttle)
-		}
-
-		dbClient, err := b.ClientCreator.CreateAsyncClient()
+		// initialize client
+		c, err := b.ClientCreator.CreateAsyncClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
+		clients[i] = c
 
-		keyGen := NewKeyGenerator(b)
+		// initialize limiter
+		if b.Throttle > 0 {
+			limiters[i] = lib.NewLimiter(b.Throttle)
+		}
+
+		// initialize key generator
+		keyGenerators[i] = NewKeyGenerator(b)
+	}
+
+	clientWaiter := sync.WaitGroup{}
+	clientID := 0
+	b.startTime = time.Now()
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
+		dbClient := clients[i]
+		limiter := limiters[i]
+		keyGen := keyGenerators[i]
 
 		// run each client in a separate goroutine
 		clientID++
@@ -711,7 +736,6 @@ func (b *Benchmark) collect(latencies <-chan time.Duration) {
 // is based on the RunBlockingClient().
 func (b *Benchmark) RunThroughputCollectorClients() {
 	latencies := make(chan time.Duration, 100_000)
-	b.startTime = time.Now()
 
 	// gather the latencies from all the clients
 	// collect the number of response every 1 second (throughput)
@@ -747,21 +771,35 @@ func (b *Benchmark) RunThroughputCollectorClients() {
 		}
 	}()
 
-	// run all the clients, set the number of clients from "concurrency"
-	// in the configuration file
-	clientWaiter := sync.WaitGroup{}
-	for cid := 0; cid < b.BenchmarkConfig.Concurrency; cid++ {
-		var limiter *lib.Limiter
-		if b.Throttle > 0 {
-			limiter = lib.NewLimiter(b.Throttle)
-		}
-
-		db, err := b.ClientCreator.CreateAsyncClient()
+	// initialize all the clients, limiters, and key generators
+	clients := make([]AsyncClient, b.BenchmarkConfig.Concurrency)
+	limiters := make([]*lib.Limiter, b.BenchmarkConfig.Concurrency)
+	keyGenerators := make([]*KeyGenerator, b.BenchmarkConfig.Concurrency)
+	for i := 0; i < b.BenchmarkConfig.Concurrency; i++ {
+		// initialize client
+		c, err := b.ClientCreator.CreateAsyncClient()
 		if err != nil {
 			log.Fatalf("failed to initialize db client: %s", err.Error())
 		}
+		clients[i] = c
 
-		kg := NewKeyGenerator(b)
+		// initialize limiter
+		if b.Throttle > 0 {
+			limiters[i] = lib.NewLimiter(b.Throttle)
+		}
+
+		// initialize key generator
+		keyGenerators[i] = NewKeyGenerator(b)
+	}
+
+	// run all the clients, set the number of clients from "concurrency"
+	// in the configuration file
+	clientWaiter := sync.WaitGroup{}
+	b.startTime = time.Now()
+	for cid := 0; cid < b.BenchmarkConfig.Concurrency; cid++ {
+		db := clients[cid]
+		limiter := limiters[cid]
+		kg := keyGenerators[cid]
 
 		// run clients, each in a separate goroutines
 		clientWaiter.Add(1)

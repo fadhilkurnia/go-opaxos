@@ -47,7 +47,8 @@ const (
 	TypeAdminSlowCommand
 	TypeAdminPartitionCommand
 
-	TypeOtherCommand // consensus-protocol specific command, used for Fast-OPaxos
+	TypeOtherCommand       // consensus-protocol specific command, used for Fast-OPaxos
+	TypeGetMetadataCommand // used in Fast-OPaxos' client
 
 	TypeCommandReply
 )

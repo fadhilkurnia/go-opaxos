@@ -1,11 +1,11 @@
 package fastopaxos
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/ailidani/paxi/opaxos"
+	"github.com/vmihailenco/msgpack/v5"
 	"math"
 	"strings"
 )
@@ -272,10 +272,10 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		// If the entry is already committed then the coordinator just need to execute it without
 		// broadcasting commit. This is possible if previously the coordinator already
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
-		if newEntry.resendClearCmd {
-			fop.broadcastClearCommand(directCmd.Slot)
-		}
 		fop.exec()
+		if newEntry.resendClearCmd {
+			fop.broadcastClearCommand(directCmd.Slot, newEntry)
+		}
 		return
 	}
 
@@ -308,6 +308,12 @@ func (fop *FastOPaxos) handleProtocolMessage(pmsg interface{}) {
 
 	case P3c:
 		fop.handleCommittedClearCommand(pmsg.(P3c))
+
+	case *paxi.ClientCommand:
+		req := pmsg.(*paxi.ClientCommand)
+		if req.CommandType == paxi.TypeGetMetadataCommand {
+			fop.handleGetMetadataRequest(req)
+		}
 
 	}
 }
@@ -408,9 +414,7 @@ func (fop *FastOPaxos) broadcastCommit(slot int, e *entry) {
 	}
 }
 
-func (fop *FastOPaxos) broadcastClearCommand(slot int) {
-	e := fop.log[slot]
-
+func (fop *FastOPaxos) broadcastClearCommand(slot int, e *entry) {
 	log.Debugf("broadcasting commit, slot=%d b=%s bo=%s", slot, fop.ballot, e.oriBallot)
 
 	// Clear command is sent to fellow trusted nodes, so they
@@ -557,52 +561,18 @@ func (fop *FastOPaxos) exec() {
 	}
 }
 
-func (fop *FastOPaxos) execCommand(byteCmd *paxi.BytesCommand, e *entry) paxi.CommandReply {
-	var cmd paxi.Command
-	reply := paxi.CommandReply{
-		Code:   paxi.CommandReplyErr,
-		SentAt: 0,
+func (fop *FastOPaxos) handleGetMetadataRequest(req *paxi.ClientCommand) {
+	log.Debugf("handle get metadata request from client")
+	reply := &paxi.CommandReply{
+		Code:   paxi.CommandReplyOK,
 		Data:   nil,
 	}
-
-	if *paxi.ClientIsStateful {
-		cmd = byteCmd.ToCommand()
-
-	} else if *paxi.ClientIsStateful == false {
-		gcmd, err := paxi.UnmarshalGenericCommand(*byteCmd)
-		if err != nil {
-			log.Fatalf("failed to unmarshal client's generic command %s", err.Error())
-		}
-		log.Debugf("generic command %v", gcmd)
-		cmd.Key = paxi.Key(binary.BigEndian.Uint32(gcmd.Key))
-		cmd.Value = gcmd.Value
-		reply.SentAt = gcmd.SentAt // forward sentAt from client back to client
-
-	} else {
-		log.Errorf("unknown client stateful property, does not know how to handle the command")
-		reply.Code = paxi.CommandReplyErr
+	getMetadataResp := GetMetadataResponse{
+		NextSlot: fop.slot,
 	}
-
-	log.Debugf("executing command %v", cmd)
-	value := fop.Execute(cmd)
-
-	// reply with data for write operation
-	if cmd.Value == nil {
-		reply.Data = value
+	buff, _ := msgpack.Marshal(getMetadataResp)
+	reply.Data = buff
+	if err := req.Reply(reply); err != nil {
+		log.Errorf("failed to send metadata to client: %s", err)
 	}
-
-	log.Debugf("cmd=%v, value=%x", cmd, value)
-	return reply
-}
-
-func (fop *FastOPaxos) sendFailureResponse(e *entry) {
-	//failResp := &paxi.CommandReply{
-	//	OK:     false,
-	//	Ballot: fop.ballot.String(),
-	//}
-	//err := e.command.Reply(failResp)
-	//if err != nil {
-	//	log.Errorf("fail to reply to client %v", err)
-	//}
-	//e.command.ClientCommand = nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/encoder"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func init() {
@@ -15,6 +16,8 @@ func init() {
 	encoder.Register(P2b{})
 	encoder.Register(P3{})
 	encoder.Register(P3c{})
+	encoder.Register(GetMetadataRequest{})
+	encoder.Register(GetMetadataResponse{})
 }
 
 type SecretShare []byte
@@ -150,4 +153,23 @@ type CommandShare struct {
 	Ballot    Ballot  `msgpack:"b"`           // the accepted ballot number
 	OriBallot Ballot  `msgpack:"o"`           // the original ballot-number
 	Share     []byte  `msgpack:"c,omitempty"` // the secret-share of the accepted value
+}
+
+type GetMetadataRequest struct{}
+
+func (g GetMetadataRequest) Serialize() []byte {
+	buff, _ := msgpack.Marshal(g)
+	return buff
+}
+
+func (g GetMetadataRequest) GetCommandType() byte {
+	return paxi.TypeGetMetadataCommand
+}
+
+func DeserializeGetMetadataRequest(buff []byte) GetMetadataRequest {
+	return GetMetadataRequest{}
+}
+
+type GetMetadataResponse struct {
+	NextSlot int `msgpack:"s"`
 }

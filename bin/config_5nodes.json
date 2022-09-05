@@ -40,7 +40,7 @@
         "K": 9,
         "W": 1.0,
         "Size": 50,
-        "Throttle": 100,
+        "Throttle": 1000,
         "Concurrency": 1,
         "Distribution": "uniform",
         "LinearizabilityCheck": false,

@@ -5,6 +5,7 @@ import (
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/ailidani/paxi/opaxos"
+	"github.com/vmihailenco/msgpack/v5"
 	"runtime"
 	"time"
 )
@@ -78,6 +79,8 @@ func NewClient() *Client {
 	client.initRunSSWorkers()
 	go client.consumeSendSecretSharedCommand()
 
+	client.getConsensusMetadata()
+
 	return client
 }
 
@@ -97,6 +100,29 @@ func (c *Client) consumeSendSecretSharedCommand() {
 			}
 		}
 	}
+}
+
+// getConsensusMetadata gets the next empty slot from the coordinator
+func (c *Client) getConsensusMetadata() {
+	err := c.nodeClients[c.coordinatorID].SendCommand(GetMetadataRequest{})
+	if err != nil {
+		log.Fatalf("failed to initialize client: %s", err)
+	}
+	respChannel := c.nodeClients[c.coordinatorID].GetResponseChannel()
+	respRaw := <- respChannel
+	if respRaw.Code != paxi.CommandReplyOK {
+		log.Fatalf("failed to initialize client: %s", errors.New("error response from coordinator"))
+	}
+
+	metadataRaw := respRaw.Data
+	metadata := GetMetadataResponse{}
+	err = msgpack.Unmarshal(metadataRaw, &metadata)
+	if err != nil {
+		log.Fatalf("failed to initialize client: %s", err)
+	}
+	c.targetSlot = metadata.NextSlot
+
+	log.Debugf("starting slot from %d", c.targetSlot+1)
 }
 
 // Get implements paxi.Client interface

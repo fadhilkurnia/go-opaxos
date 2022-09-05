@@ -97,6 +97,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 	acceptableCommandType.Add(TypeDBPutCommand)
 	acceptableCommandType.Add(TypeAdminCrashCommand)
 	acceptableCommandType.Add(TypeOtherCommand)
+	acceptableCommandType.Add(TypeGetMetadataCommand)
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket
@@ -120,7 +121,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 
 		var cmdBuff []byte
 
-		log.Debugf("waiting length ...")
+		//log.Debugf("waiting length ...")
 		_, err = io.ReadAtLeast(clientReader, cmdLenBuff[:], 4)
 		if err != nil {
 			log.Errorf("fail to read command length %v", err)
@@ -129,13 +130,13 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 		cmdLen = binary.BigEndian.Uint32(cmdLenBuff[:])
 		cmdBuff = make([]byte, cmdLen)
 
-		log.Debugf("waiting command buffer ...")
+		//log.Debugf("waiting command buffer ...")
 		_, err = io.ReadAtLeast(clientReader, cmdBuff[:cmdLen], int(cmdLen))
 		if err != nil {
 			log.Errorf("fail to read command data %v", err)
 			break
 		}
-		log.Debugf("len=%x(%d) data=%x", cmdLenBuff, cmdLen, cmdBuff)
+		//log.Debugf("len=%x(%d) data=%x", cmdLenBuff, cmdLen, cmdBuff)
 
 		// handle AdminCommands
 		if AdminCommandTypes.Has(firstByte) {
