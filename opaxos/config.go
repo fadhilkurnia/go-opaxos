@@ -73,7 +73,7 @@ func InitConfig(cfg *paxi.Config) Config {
 	// set default quorum size
 	if protocolCfg.Quorum1 == 0 && protocolCfg.Quorum2 == 0 {
 		protocolCfg.Quorum1 = (cfg.N() / 2) + protocolCfg.Threshold
-		if cfg.N() % 2 == 0 {
+		if cfg.N()%2 == 0 {
 			protocolCfg.Quorum1 -= 1
 		}
 		protocolCfg.Quorum2 = (cfg.N() / 2) + 1
@@ -85,8 +85,19 @@ func InitConfig(cfg *paxi.Config) Config {
 	}
 
 	// check q1 and fast quorum intersection
-	if protocolCfg.SecretSharing != "other" && 2*protocolCfg.QuorumFast+protocolCfg.Quorum1 < 2*cfg.N()+protocolCfg.Threshold {
-		log.Fatal("the intersection of 'quorum_fast' must intersect with at least 'threshold' nodes in any 'quorum_1'")
+	if protocolCfg.SecretSharing != "other" && protocolCfg.QuorumFast != 0 {
+		intersectionQ1Qf := protocolCfg.Quorum1 + protocolCfg.QuorumFast - cfg.N()
+		intersectionPairQf := (2 * protocolCfg.QuorumFast) - cfg.N()
+		intersectionQ1PairQf := intersectionPairQf + protocolCfg.Quorum1 - cfg.N()
+
+		if intersectionQ1Qf < protocolCfg.Threshold {
+			log.Fatalf("Any Q1 must intersect with Qf in at least t nodes. N=%d |Q1|=%d |Qf|=%d",
+				cfg.N(), protocolCfg.Quorum1, protocolCfg.QuorumFast)
+		}
+		if intersectionQ1PairQf < 0 {
+			log.Fatalf("Any pair of Qf must intersect with any Q1. N=%d |Q1|=%d |Qf|=%d |I|=%d",
+				cfg.N(), protocolCfg.Quorum1, protocolCfg.QuorumFast, intersectionPairQf)
+		}
 	}
 
 	return Config{cfg, protocolCfg}

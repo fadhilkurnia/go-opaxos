@@ -114,7 +114,7 @@ func (n *node) Run() {
 		go func() {
 			runtime.SetMutexProfileFraction(5)
 			runtime.SetBlockProfileRate(1)
-			log.Fatal(http.ListenAndServe("localhost:6060", nil))
+			log.Fatal(http.ListenAndServe("127.0.0.1:6060", nil))
 		}()
 	}
 
