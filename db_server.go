@@ -8,6 +8,7 @@ import (
 	"github.com/ailidani/paxi/log"
 	"io"
 	"net"
+	"net/rpc"
 	"net/url"
 	"os"
 	"os/signal"
@@ -20,13 +21,9 @@ func (n *node) runTCPServer() {
 		log.Fatalf("host public address parse error: %s", err)
 	}
 	port := ":" + rpcAddress.Port()
-	rAddr, err := net.ResolveTCPAddr("tcp", port)
-	if err != nil {
-		log.Fatalf("failed to start tcp host server: %s", err)
-	}
 
-	// rpc.HandleHTTP()
-	listener, err := net.ListenTCP("tcp", rAddr)
+	rpc.HandleHTTP()
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("failed to start tcp host server: %s", err)
 	}
@@ -37,17 +34,11 @@ func (n *node) runTCPServer() {
 	// accept any incoming TCP connection request from client
 	for {
 		// Accept() blocks until it receive new connection request from client
-		conn, acceptErr := listener.AcceptTCP()
+		conn, acceptErr := listener.Accept()
 		if acceptErr != nil {
-			log.Errorf("failed to accept client init connection request %v", acceptErr)
+			log.Errorf("failed to accept client init connection request %v", err)
 			continue
 		}
-		err = conn.SetNoDelay(false)
-		if err != nil {
-			log.Errorf("failed to configure TCP NO_DELAY", err)
-			continue
-		}
-
 		log.Debugf("client connection accepted, serving with client type: %s", *ClientType)
 
 		go n.handleIncomingCommands(conn)
