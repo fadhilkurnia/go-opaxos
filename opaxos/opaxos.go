@@ -729,10 +729,8 @@ func (op *OPaxos) HandleProposeResponse(m P2b) {
 		op.log[m.Slot].quorum.ACK(m.ID)
 		if op.Q2(op.log[m.Slot].quorum) {
 			op.log[m.Slot].commit = true
+			op.exec() // update execute slot idx
 			op.broadcastCommit(m.Slot, m.Ballot)
-
-			// update execute slot idx
-			op.exec()
 		}
 	}
 }

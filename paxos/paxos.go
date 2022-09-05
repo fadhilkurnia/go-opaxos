@@ -399,6 +399,7 @@ func (p *Paxos) HandleP2b(m P2b) {
 		p.log[m.Slot].quorum.ACK(m.ID)
 		if p.Q2(p.log[m.Slot].quorum) {
 			p.log[m.Slot].commit = true
+			p.exec()
 			p.Broadcast(P3{
 				Ballot:   m.Ballot,
 				Slot:     m.Slot,
@@ -409,7 +410,6 @@ func (p *Paxos) HandleP2b(m P2b) {
 				// can contact back the proposer asking the committed value.
 			})
 
-			p.exec()
 		}
 	}
 }
