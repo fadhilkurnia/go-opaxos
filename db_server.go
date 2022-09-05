@@ -158,7 +158,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 		n.MessageChan <- cmd
 	}
 
-	if err != io.EOF {
+	if err != nil && err != io.EOF {
 		log.Errorf("exiting from reader loop %s, terminating client connection", err.Error())
 	}
 }
