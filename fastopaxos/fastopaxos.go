@@ -288,15 +288,19 @@ func (fop *FastOPaxos) coordinatorHandleClientDirectCommand(cmd *paxi.ClientComm
 		fop.log[assignedSlot] = newEntry
 	}
 
-	newEntry.quorum.ACK(fop.ID())
+	if newEntry.commit {
+		fop.exec()
+		return
+	}
 
 	// handle if this is the QF-th proposal's response
-	if newEntry.quorum.Total() >= fop.numQF {
+	newEntry.quorum.ACK(fop.ID())
+	if newEntry.quorum.Total() == fop.numQF {
 		// when all the numQF accepted the fast-proposal
 		// the coordinator directly commit the value
-		if newEntry.quorum.Size() >= fop.numQF {
+		if newEntry.quorum.Size() == fop.numQF {
 			newEntry.commit = true
-			fop.exec() // exec and remove entry from log
+			fop.exec()
 			fop.broadcastCommit(assignedSlot, newEntry)
 		} else {
 			fop.recoveryProcess(assignedSlot)
@@ -360,19 +364,19 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		e.quorum.NACK(m.ID)
 	}
 
-	if e.quorum.Total() >= fop.numQF {
+	if e.quorum.Total() == fop.numQF {
 		// when all the numQF accepted the fast-proposal
 		// the coordinator directly commit the value
-		if e.quorum.Size() >= fop.numQF {
+		if e.quorum.Size() == fop.numQF {
+			e.commit = true
 
 			if len(e.command) == 0 {
 				log.Warningf("want to commit and execute but command is empty, waiting for the DirectCommand | s=%d bo=%s",
 					m.Slot, e.oriBallot)
-				return
+			} else {
+				fop.exec()
 			}
 
-			e.commit = true
-			fop.exec() // exec and remove entry from log
 			fop.broadcastCommit(m.Slot, e)
 		} else {
 			fop.recoveryProcess(m.Slot)
