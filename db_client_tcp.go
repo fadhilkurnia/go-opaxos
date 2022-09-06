@@ -19,7 +19,7 @@ type TCPClient struct {
 	AdminClient
 
 	hostID     ID
-	connection *net.TCPConn
+	connection net.Conn
 	buffWriter *bufio.Writer
 	buffReader *bufio.Reader
 
@@ -41,21 +41,8 @@ func NewTCPClient(id ID) *TCPClient {
 		log.Fatal(errStr)
 		return nil
 	}
-	rAddr, err := net.ResolveTCPAddr("tcp", nodeAddress)
-	if err != nil {
-		log.Error(err)
-		return c
-	}
 
-	c.connection, err = net.DialTCP("tcp", nil, rAddr)
-	if err != nil {
-		log.Error(err)
-		return c
-	}
-
-	// Disable TCP_NODELAY; Nagle's Algorithm takes action.
-	// Please read https://blog.gopheracademy.com/advent-2019/control-packetflow-tcp-nodelay/
-	err = c.connection.SetNoDelay(false)
+	c.connection, err = net.Dial("tcp", nodeAddress)
 	if err != nil {
 		log.Error(err)
 		return c
