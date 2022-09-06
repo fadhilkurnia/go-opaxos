@@ -450,7 +450,6 @@ func (b *Benchmark) RunPipelineClient() {
 					// SendCommand is a non-blocking method, it returns immediately
 					// without waiting for the response
 					now := time.Now()
-					log.Debugf("sending write command at %v", now.UnixNano())
 					clientErr = dbClient.SendCommand(&DBCommandPut{
 						CommandID: uint32(reqCounter),
 						SentAt:    now.UnixNano(),
@@ -459,7 +458,6 @@ func (b *Benchmark) RunPipelineClient() {
 					})
 				} else { // issuing read request
 					now := time.Now()
-					log.Debugf("sending read command at %v", now.UnixNano())
 					clientErr = dbClient.SendCommand(&DBCommandGet{
 						CommandID: uint32(reqCounter),
 						SentAt:    now.UnixNano(),
@@ -635,11 +633,11 @@ func (b *Benchmark) RunBlockingClient() {
 						if ssTimeInt, ok := ssTimeRaw.(int64); ok {
 							encodeTimes <- time.Duration(ssTimeInt)
 						} else {
-							log.Errorf("encoding (secret-sharing) time must be an int64 time.Duration")
+							log.Error("encoding (secret-sharing) time must be an int64 time.Duration")
 						}
 					}
 				} else {
-					log.Debugf("receive non-ok response")
+					log.Error("receive non-ok response")
 				}
 
 				// stop if this client already send N requests
