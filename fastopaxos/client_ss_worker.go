@@ -16,7 +16,7 @@ type RawDirectCommandBallot struct {
 }
 
 type BroadcastDirectCommand struct {
-	DirectCommands map[paxi.ID]*DirectCommand
+	DirectCommands []*DirectCommand
 }
 
 type ClientSSWorker struct {
@@ -44,18 +44,17 @@ func (w *ClientSSWorker) StartProcessingInput(inputChannel chan *RawDirectComman
 		}
 
 		// prepare DirectCommand for all the nodes
-		directCmds := make(map[paxi.ID]*DirectCommand)
+		directCmds := make([]*DirectCommand, len(w.nodeIDs))
 		for i, id := range w.nodeIDs {
-			dcmd := DirectCommand{
+			directCmds[i] = &DirectCommand{
 				Slot:      cmd.Slot,
 				OriBallot: cmd.OriginalBallot,
 				Share:     SecretShare(ss[i]),
 				Command:   nil,
 			}
 			if w.coordinatorID == id {
-				dcmd.Command = cmdBuff
+				(*directCmds[i]).Command = cmdBuff
 			}
-			directCmds[id] = &dcmd
 		}
 
 		outputChannel <- &BroadcastDirectCommand{

@@ -93,11 +93,13 @@ func (c *Client) initRunSSWorkers() {
 
 func (c *Client) consumeSendSecretSharedCommand() {
 	for bcast := range c.broadcasts {
-		for id, _ := range c.nodeClients {
-			err := c.nodeClients[id].SendCommand(bcast.DirectCommands[id])
+		for dcid, nid := range c.nodeIDs {
+			directCmd := bcast.DirectCommands[dcid]
+			err := c.nodeClients[nid].SendCommand(directCmd)
 			if err != nil {
-				log.Errorf("failed to send DirectCommand to %s: %s", id, err)
+				log.Errorf("failed to send DirectCommand to %s: %s", nid, err)
 			}
+			dcid++
 		}
 	}
 }

@@ -84,7 +84,7 @@ func Statistic(latency []time.Duration) Stat {
 	sumAbsSq := 0.0
 	for _, m := range ms {
 		x := math.Abs(m - stat.Mean)
-		sumAbsSq += x*x
+		sumAbsSq += math.Pow(x, 2)
 	}
 	stat.StdDev = math.Sqrt(sumAbsSq/float64(size))
 	return stat
