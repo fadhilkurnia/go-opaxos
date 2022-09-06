@@ -210,10 +210,10 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			//    before getting DirectCommand from the client.
 			log.Warning("received DirectCommand for an already allocated entry")
 			newEntry = e
-			e.share = directCmd.Share
-			e.commandHandler = cmd
+			(*newEntry).share = directCmd.Share
+			(*newEntry).commandHandler = cmd
 			if len(directCmd.Command) > 0 {
-				e.command = directCmd.Command
+				(*newEntry).command = directCmd.Command
 			}
 
 		} else {
@@ -552,7 +552,7 @@ func (fop *FastOPaxos) exec() {
 				log.Errorf("failed to send CommandReply: %v", err)
 			}
 		} else {
-			log.Warningf("not sending result to client: %v", e)
+			log.Errorf("not sending result to client since the cmd handler is empty: %v", e)
 		}
 
 		// clean the slot after the command is executed
