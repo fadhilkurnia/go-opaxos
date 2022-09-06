@@ -269,6 +269,11 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	}
 
 	if newEntry.commit {
+
+		if newEntry.command == nil {
+			log.Fatalf("command is still empty: %v", newEntry)
+		}
+
 		// If the entry is already committed then the coordinator just need to execute it without
 		// broadcasting commit. This is possible if previously the coordinator already
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
@@ -287,7 +292,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		if newEntry.quorum.Size() == fop.numQF {
 			newEntry.commit = true
 			fop.broadcastCommit(directCmd.Slot, newEntry)
-			fop.exec() // exec and remove entry from log
+			fop.exec()
 		} else {
 			fop.recoveryProcess(directCmd.Slot)
 		}
@@ -364,7 +369,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 			// Ideally, before the coordinator receives |Qf| acks, the coordinator already
 			// received DirectCommand from client which contain clear command. Here, we handle
 			// if the coordinator receives |Qf| acks before the clear command.
-			if len(e.command) == 0 {
+			if e.command == nil {
 				log.Warningf("want to execute but command is empty | s=%d bo=%s",
 					m.Slot, e.oriBallot)
 				e.resendClearCmd = true
@@ -495,7 +500,7 @@ func (fop *FastOPaxos) exec() {
 		// a non-trusted node does not execute the command
 		if !fop.isTrusted {
 			// has not received the DirectCommand from client
-			if len(e.share) == 0 {
+			if e.share == nil {
 				return
 			}
 
@@ -505,9 +510,9 @@ func (fop *FastOPaxos) exec() {
 			continue
 		}
 
-		if len(e.command) == 0 {
-			log.Warning("command is empty, can not execute the command. s=%d b=%s bo=%s", fop.execute, e.ballot, e.oriBallot)
-			return
+		if e.command == nil {
+			// has not received direct command from client
+			break
 		}
 
 		// prepare response for client
@@ -564,8 +569,8 @@ func (fop *FastOPaxos) exec() {
 func (fop *FastOPaxos) handleGetMetadataRequest(req *paxi.ClientCommand) {
 	log.Debugf("handle get metadata request from client")
 	reply := &paxi.CommandReply{
-		Code:   paxi.CommandReplyOK,
-		Data:   nil,
+		Code: paxi.CommandReplyOK,
+		Data: nil,
 	}
 	getMetadataResp := GetMetadataResponse{
 		NextSlot: fop.slot,
