@@ -105,6 +105,11 @@ func (b *Benchmark) Run() {
 		b.RunThroughputCollectorClients()
 		return
 	}
+	if *ClientAction == "tracefile" {
+		*ClientIsStateful = false
+		b.RunClientTracefile()
+		return
+	}
 
 	*ClientIsStateful = false
 	b.RunBlockingClient()

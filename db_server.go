@@ -139,20 +139,18 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 		}
 
 		if !acceptableCommandType.Has(firstByte) {
-			log.Errorf("unsupported client's command: %d", firstByte)
+			log.Errorf("unsupported client's command: %d, supported commands: %s", firstByte, acceptableCommandType)
 			break
 		}
 
-		var cmdBuff []byte
-
 		//log.Debugf("waiting length ...")
-		_, err = io.ReadAtLeast(clientReader, cmdLenBuff[:], 4)
+		_, err = io.ReadAtLeast(clientReader, cmdLenBuff[0:4], 4)
 		if err != nil {
 			log.Errorf("fail to read command length %v", err)
 			break
 		}
-		cmdLen = binary.BigEndian.Uint32(cmdLenBuff[:])
-		cmdBuff = make([]byte, cmdLen)
+		cmdLen = binary.BigEndian.Uint32(cmdLenBuff[0:4])
+		cmdBuff := make([]byte, cmdLen)
 
 		//log.Debugf("waiting command buffer ...")
 		_, err = io.ReadAtLeast(clientReader, cmdBuff[:cmdLen], int(cmdLen))

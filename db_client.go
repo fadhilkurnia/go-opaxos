@@ -3,7 +3,7 @@ package paxi
 import "flag"
 
 var ClientType = flag.String("client_type", "unix", "client type that sending command to the server, options: unix (default), tcp, http")
-var ClientAction = flag.String("client_action", "block", "how the client communicate with the server, options: block (default), pipeline, callback")
+var ClientAction = flag.String("client_action", "block", "how the client communicate with the server, options: block (default), pipeline, callback, throughput_collector, tracefile")
 var ClientIsStateful = flag.Bool("client_stateful", false, "whether the client store the request metadata or not, by default all the metadata (e.g timestamp) stored in the request & response")
 
 // Client interface provides get and put for key-value store client

@@ -3,6 +3,7 @@ package paxi
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/ailidani/paxi/log"
 	"io"
@@ -249,12 +250,15 @@ func (c *TCPClient) SendCommand(cmd SerializableCommand) error {
 
 	buff = append(buff, cmdBytes...)
 
-	_, err := c.buffWriter.Write(buff)
+	nn, err := c.buffWriter.Write(buff)
 	if err != nil {
 		return err
 	}
-
-	c.buffWriter.Buffered()
+	if nn != len(buff) {
+		e := errors.New(fmt.Sprintf("not all the data is written, expecting %d but only %d", len(buff), nn))
+		log.Error(e)
+		return e
+	}
 
 	return c.buffWriter.Flush()
 }
