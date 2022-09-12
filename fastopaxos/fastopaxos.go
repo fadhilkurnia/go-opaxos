@@ -172,7 +172,7 @@ func (fop *FastOPaxos) run() {
 // - assigned: this can only happen if P3 comes first from the coordinator before client's DirectCommand
 func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	if len(cmd.RawCommand) == 0 {
-		log.Warningf("got empty direct command from client: %v", cmd)
+		log.Errorf("got empty direct command from client: %v", cmd)
 		return
 	}
 
@@ -204,7 +204,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			//    getting DirectCommand from the client.
 			// 2. this node is a non-coordinator and got P3 (commit) message from the coordinator
 			//    before getting DirectCommand from the client.
-			log.Warning("received DirectCommand for an already allocated entry")
+			log.Debug("received DirectCommand for an already allocated entry")
 			newEntry = e
 			(*newEntry).share = directCmd.Share
 			(*newEntry).commandHandler = cmd
@@ -328,7 +328,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 
 	e, exist := fop.log[m.Slot]
 	if !exist {
-		log.Warningf("receives P2b from other nodes before DirectCommand from client: s=%d b=%s bo=%s",
+		log.Debugf("receives P2b from other nodes before DirectCommand from client: s=%d b=%s bo=%s",
 			m.Slot, m.Ballot, m.OriBallot)
 		e = &entry{
 			ballot:         m.Ballot,
@@ -366,7 +366,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 			// received DirectCommand from client which contain clear command. Here, we handle
 			// if the coordinator receives |Qf| acks before the clear command.
 			if e.command == nil {
-				log.Warningf("want to execute but command is empty | s=%d bo=%s",
+				log.Debugf("want to execute but command is empty | s=%d bo=%s",
 					m.Slot, e.oriBallot)
 				e.resendClearCmd = true
 				return
@@ -453,7 +453,7 @@ func (fop *FastOPaxos) handleCommitMessage(m P3) {
 			command:   m.Command,
 		}
 
-		log.Warningf("commit comes before client's direct command| s=%d bo=%s", m.Slot, m.OriBallot)
+		log.Debugf("commit comes before client's direct command| s=%d bo=%s", m.Slot, m.OriBallot)
 	}
 
 	fop.exec()
@@ -480,7 +480,7 @@ func (fop *FastOPaxos) handleCommittedClearCommand(m P3c) {
 			command:   m.Command,
 		}
 
-		log.Warningf("P3c comes before client's direct command or commit | s=%d bo=%s", m.Slot, m.OriBallot)
+		log.Debugf("P3c comes before client's direct command or commit | s=%d bo=%s", m.Slot, m.OriBallot)
 	}
 
 	fop.exec()
