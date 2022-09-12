@@ -51,10 +51,8 @@ type FastOPaxos struct {
 	execute   int            // next execute slot number
 	slot      int            // highest non-empty slot number
 
-	protocolMessages chan interface{}                 // receiver channel for prepare, propose, commit messages
-	rawCommands      chan *paxi.ClientCommand         // raw commands from clients
-	pendingCommands  chan *opaxos.SecretSharedCommand // pending commands that will be proposed
-	retryCommands    chan *paxi.ClientCommand         // retryCommands holds command that need to be reproposed due to conflict
+	protocolMessages chan interface{}         // receiver channel for prepare, propose, commit messages
+	rawCommands      chan *paxi.ClientCommand // raw commands from clients
 
 	numSSWorkers int                            // number of workers to secret-share client's raw command
 	numQ2        int                            // numQ2 is the size of quorum for phase-2 (classic)
@@ -79,8 +77,6 @@ func NewFastOPaxos(n paxi.Node, options ...func(fop *FastOPaxos)) *FastOPaxos {
 		slot:             -1,
 		protocolMessages: make(chan interface{}, paxi.GetConfig().ChanBufferSize),
 		rawCommands:      make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
-		pendingCommands:  make(chan *opaxos.SecretSharedCommand, paxi.GetConfig().ChanBufferSize),
-		retryCommands:    make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize),
 		Q2:               func(q *paxi.Quorum) bool { return q.Majority() },
 		N:                n.GetConfig().N(),
 		threshold:        cfg.Protocol.Threshold,

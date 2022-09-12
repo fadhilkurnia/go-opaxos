@@ -26,15 +26,15 @@ func NewReplica(id paxi.ID) *Replica {
 
 func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
 	log.Debugf("enqueuing protocol message: %v", pmsg)
-	r.FastOPaxos.protocolMessages <- pmsg
+	r.nonBlockingEnqueueProtocolMessage(pmsg)
 }
 
 func (r *Replica) HandleClientCommand(ccmd *paxi.ClientCommand) {
 	log.Debugf("enqueuing client commands: %v", ccmd)
 	if ccmd.CommandType == paxi.TypeOtherCommand {
-		r.FastOPaxos.rawCommands <- ccmd
+		r.nonBlockingEnqueueRawCommand(ccmd)
 	} else if ccmd.CommandType == paxi.TypeGetMetadataCommand {
-		r.FastOPaxos.protocolMessages <- ccmd
+		r.nonBlockingEnqueueProtocolMessage(ccmd)
 	} else {
 		log.Errorf("unknown client's command")
 	}
@@ -43,4 +43,28 @@ func (r *Replica) HandleClientCommand(ccmd *paxi.ClientCommand) {
 func (r *Replica) RunWithWorker() {
 	go r.FastOPaxos.run()
 	r.Run()
+}
+
+func (r *Replica) nonBlockingEnqueueRawCommand(ccmd *paxi.ClientCommand)  {
+	if len(r.FastOPaxos.rawCommands) == cap(r.FastOPaxos.rawCommands) {
+		log.Warningf("buffered channel for client's raw commands is full, cap=%d", len(r.FastOPaxos.rawCommands))
+		go func() {
+			r.FastOPaxos.rawCommands <- ccmd
+		}()
+		return
+	}
+
+	r.FastOPaxos.rawCommands <- ccmd
+}
+
+func (r *Replica) nonBlockingEnqueueProtocolMessage(pmsg interface{})  {
+	if len(r.FastOPaxos.protocolMessages) == cap(r.FastOPaxos.protocolMessages) {
+		log.Warningf("buffered channel for protocol messages is full, cap=%d", len(r.FastOPaxos.protocolMessages))
+		go func() {
+			r.FastOPaxos.protocolMessages <- pmsg
+		}()
+		return
+	}
+
+	r.FastOPaxos.protocolMessages <- pmsg
 }
