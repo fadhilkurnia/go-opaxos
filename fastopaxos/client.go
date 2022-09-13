@@ -15,11 +15,13 @@ import (
 type Client struct {
 	paxi.Client
 
-	clientID    paxi.ID
-	ballot      Ballot
-	targetSlot  int
-	lastCmdID   int
-	nodeClients map[paxi.ID]*paxi.TCPClient
+	clientID            paxi.ID
+	ballot              Ballot
+	lastCmdID           int
+	nodeClients         map[paxi.ID]*paxi.TCPClient
+	targetSlot          int
+	useSharedTargetSlot bool
+	sharedTargetSlot    *uint64
 
 	ssAlgorithm   string
 	threshold     int
@@ -174,7 +176,12 @@ func (c *Client) Put2(key paxi.Key, value paxi.Value) (interface{}, error) {
 
 func (c *Client) doDirectCommand(cmdBuff []byte) (*paxi.CommandReply, error) {
 	c.ballot.Next(c.clientID)
-	c.targetSlot++
+
+	if c.useSharedTargetSlot {
+		c.targetSlot = int(atomic.AddUint64(c.sharedTargetSlot, 1))
+	} else {
+		c.targetSlot++
+	}
 
 	// secret-shares the command
 	cmdShares, _, err := c.defSSWorker.SecretShareCommand(cmdBuff)
@@ -255,7 +262,12 @@ func (c *Client) GetResponseChannel() chan *paxi.CommandReply {
 
 func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 	c.ballot.Next(c.clientID)
-	c.targetSlot++
+
+	if c.useSharedTargetSlot {
+		c.targetSlot = int(atomic.AddUint64(c.sharedTargetSlot, 1))
+	} else {
+		c.targetSlot++
+	}
 
 	c.ssJobs <- &RawDirectCommandBallot{
 		Slot:           c.targetSlot,
@@ -271,17 +283,21 @@ type ClientCreator struct {
 	paxi.BenchmarkClientCreator
 }
 
-func (f ClientCreator) Create() (paxi.Client, error) {
+func (f *ClientCreator) Create() (paxi.Client, error) {
 	panic("unimplemented")
 }
 
-func (f ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
+func (f *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 	newClient := NewClient()
 	atomic.StoreUint64(&f.lastSlotNumber, uint64(newClient.targetSlot))
 	newClient.responseChan = newClient.nodeClients[newClient.coordinatorID].GetResponseChannel()
+
+	newClient.useSharedTargetSlot = true
+	newClient.sharedTargetSlot = &f.lastSlotNumber
+
 	return newClient, nil
 }
 
-func (f ClientCreator) CreateCallbackClient() (paxi.AsyncCallbackClient, error) {
+func (f *ClientCreator) CreateCallbackClient() (paxi.AsyncCallbackClient, error) {
 	panic("unimplemented")
 }

@@ -84,7 +84,7 @@ func main() {
 	}
 
 	if *algorithm == "fastopaxos" {
-		bench.ClientCreator = fastopaxos.ClientCreator{}
+		bench.ClientCreator = &fastopaxos.ClientCreator{}
 	}
 
 	if *load {
