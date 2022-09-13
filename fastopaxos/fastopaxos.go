@@ -199,17 +199,17 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		fop.ballot, directCmd.Slot, directCmd.OriBallot, len(directCmd.Command))
 	if e, exist := fop.log[directCmd.Slot]; exist {
 		if e.oriBallot == directCmd.OriBallot {
-			// the slot is already exist, this is possible in two cases:
+			// the slot is already exist, this is possible in two cases:ß
 			// 1. this node is a coordinator and got P2b messages first from other nodes before
 			//    getting DirectCommand from the client.
 			// 2. this node is a non-coordinator and got P3 (commit) message from the coordinator
 			//    before getting DirectCommand from the client.
 			log.Debug("received DirectCommand for an already allocated entry")
 			newEntry = e
-			fop.log[directCmd.Slot].share = directCmd.Share
-			fop.log[directCmd.Slot].commandHandler = cmd
+			(*newEntry).share = directCmd.Share
+			(*newEntry).commandHandler = cmd
 			if len(directCmd.Command) > 0 {
-				fop.log[directCmd.Slot].command = directCmd.Command
+				(*newEntry).command = directCmd.Command
 			}
 
 		} else {
@@ -347,12 +347,6 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		fop.log[m.Slot] = e
 		fop.slot = paxi.Max(fop.slot, m.Slot)
 
-	}
-
-	if exist && e.commit {
-		log.Debugf("ignoring committed proposal: %s", m)
-		fop.exec()
-		return
 	}
 
 	log.Debugf("s=%d e=%d | handling proposal's response: %s", fop.slot, fop.execute, m)
