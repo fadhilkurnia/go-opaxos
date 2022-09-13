@@ -206,10 +206,10 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			//    before getting DirectCommand from the client.
 			log.Debug("received DirectCommand for an already allocated entry")
 			newEntry = e
-			(*newEntry).share = directCmd.Share
-			(*newEntry).commandHandler = cmd
+			fop.log[directCmd.Slot].share = directCmd.Share
+			fop.log[directCmd.Slot].commandHandler = cmd
 			if len(directCmd.Command) > 0 {
-				(*newEntry).command = directCmd.Command
+				fop.log[directCmd.Slot].command = directCmd.Command
 			}
 
 		} else {
@@ -293,6 +293,9 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			fop.recoveryProcess(directCmd.Slot)
 		}
 	}
+
+	// just in case
+	fop.exec()
 }
 
 func (fop *FastOPaxos) handleProtocolMessage(pmsg interface{}) {
@@ -343,10 +346,11 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		fop.slot = paxi.Max(fop.slot, m.Slot)
 
 	}
-	if exist && e.commit {
-		log.Debugf("ignoring committed proposal: %s", m)
-		return
-	}
+
+	//if exist && e.commit {
+	//	log.Debugf("ignoring committed proposal: %s", m)
+	//	return
+	//}
 
 	log.Debugf("s=%d e=%d | handling proposal's response: %s", fop.slot, fop.execute, m)
 

@@ -7,6 +7,7 @@ import (
 	"github.com/ailidani/paxi/opaxos"
 	"github.com/vmihailenco/msgpack/v5"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -111,7 +112,7 @@ func (c *Client) getConsensusMetadata() {
 		log.Fatalf("failed to initialize client: %s", err)
 	}
 	respChannel := c.nodeClients[c.coordinatorID].GetResponseChannel()
-	respRaw := <- respChannel
+	respRaw := <-respChannel
 	if respRaw.Code != paxi.CommandReplyOK {
 		log.Fatalf("failed to initialize client: %s", errors.New("error response from coordinator"))
 	}
@@ -266,6 +267,7 @@ func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 }
 
 type ClientCreator struct {
+	lastSlotNumber uint64
 	paxi.BenchmarkClientCreator
 }
 
@@ -275,6 +277,7 @@ func (f ClientCreator) Create() (paxi.Client, error) {
 
 func (f ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 	newClient := NewClient()
+	atomic.StoreUint64(&f.lastSlotNumber, uint64(newClient.targetSlot))
 	newClient.responseChan = newClient.nodeClients[newClient.coordinatorID].GetResponseChannel()
 	return newClient, nil
 }
