@@ -349,10 +349,11 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 
 	}
 
-	//if exist && e.commit {
-	//	log.Debugf("ignoring committed proposal: %s", m)
-	//	return
-	//}
+	if exist && e.commit {
+		log.Debugf("ignoring committed proposal: %s", m)
+		fop.exec()
+		return
+	}
 
 	log.Debugf("s=%d e=%d | handling proposal's response: %s", fop.slot, fop.execute, m)
 
