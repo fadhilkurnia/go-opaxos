@@ -70,6 +70,8 @@ const (
 	MetadataCurrentBallot
 )
 
+var ServerToClientDelay uint64 = 0
+
 type SerializableCommand interface {
 	Serialize() []byte
 	GetCommandType() byte
@@ -118,11 +120,15 @@ func (c *ClientCommand) Reply(r *CommandReply) error {
 	cmdRepBuff := r.Serialize()
 	cmdRepLenBuff := make([]byte, 4)
 	cmdRepLen := len(cmdRepBuff)
+	binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
+
+	if ServerToClientDelay > 0 {
+		return c.deferReply(TypeCommandReply, cmdRepLenBuff, cmdRepBuff, ServerToClientDelay)
+	}
 
 	if err := replyStream.WriteByte(TypeCommandReply); err != nil {
 		return err
 	}
-	binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
 	if _, err := replyStream.Write(cmdRepLenBuff); err != nil {
 		return err
 	}
@@ -130,6 +136,31 @@ func (c *ClientCommand) Reply(r *CommandReply) error {
 		return err
 	}
 	return replyStream.Flush()
+}
+
+func (c *ClientCommand) deferReply(msgType byte, msgLenBuff []byte, buff []byte, delay uint64) error {
+	go func() {
+		time.Sleep(time.Duration(delay))
+		replyStream := c.ReplyStream
+		if err := replyStream.WriteByte(TypeCommandReply); err != nil {
+			log.Error(err)
+			return
+		}
+		if _, err := replyStream.Write(msgLenBuff); err != nil {
+			log.Error(err)
+			return
+		}
+		if _, err := replyStream.Write(buff); err != nil {
+			log.Error(err)
+			return
+		}
+		err := replyStream.Flush()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+	}()
+	return nil
 }
 
 func (c *ClientCommand) String() string {

@@ -76,6 +76,16 @@ func NewNode(id ID) Node {
 		n.storage = bufio.NewWriter(f)
 	}
 
+	// set the delay
+	delayMap, ok := GetConfig().Delays[string(id)]
+	if ok {
+		delay, ok2 := delayMap["clients"]
+		if ok2 {
+			// convert ms to ns
+			ServerToClientDelay = uint64(delay * float64(1_000_000))
+		}
+	}
+
 	return n
 }
 
@@ -128,7 +138,7 @@ func (n *node) Run() {
 		n.runUnixServer()
 	} else if *ClientType == "tcp" {
 		n.runTCPServer()
-	}else if *ClientType == "udp" {
+	} else if *ClientType == "udp" {
 		n.runUDPServer()
 	} else {
 		log.Fatalf("unknown client-node connection type: %s", *ClientType)

@@ -16,9 +16,10 @@ const MaxBatchSize = 1
 
 // Config contains every system configuration
 type Config struct {
-	Addrs       map[ID]string `json:"address"`        // address for node communication
-	PublicAddrs map[ID]string `json:"public_address"` // address for client server communication
-	Roles       map[ID]string `json:"roles"`          // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
+	Addrs       map[ID]string                 `json:"address"`        // address for node communication
+	PublicAddrs map[ID]string                 `json:"public_address"` // address for client server communication
+	Roles       map[ID]string                 `json:"roles"`          // (used in OPaxos) roles for each node, separated with comma. e.g: proposer,acceptor
+	Delays      map[string]map[string]float64 `json:"delays"`
 
 	StoragePath string `json:"storage_path"`
 

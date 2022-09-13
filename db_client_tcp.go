@@ -24,6 +24,8 @@ type TCPClient struct {
 	buffWriter *bufio.Writer
 	buffReader *bufio.Reader
 
+	delay uint64 // (in ns) currently only work for async client interface, used for blocking client
+
 	// used for blocking client behaviour
 	curCmdID uint32
 
@@ -53,6 +55,16 @@ func NewTCPClient(id ID) *TCPClient {
 	c.buffReader = bufio.NewReader(c.connection)
 	c.isAsync = false
 	c.responseCh = make(chan *CommandReply, GetConfig().Benchmark.BufferSize)
+
+	// set the delay
+	delayMap, ok := GetConfig().Delays["clients"]
+	if ok {
+		delay, ok2 := delayMap[string(id)]
+		if ok2 {
+			// convert ms to ns
+			c.delay = uint64(delay * float64(1_000_000))
+		}
+	}
 
 	return c
 }
@@ -250,6 +262,10 @@ func (c *TCPClient) SendCommand(cmd SerializableCommand) error {
 
 	buff = append(buff, cmdBytes...)
 
+	if c.delay > 0 {
+		return c.deferSendCommand(buff, c.delay)
+	}
+
 	nn, err := c.buffWriter.Write(buff)
 	if err != nil {
 		return err
@@ -261,6 +277,27 @@ func (c *TCPClient) SendCommand(cmd SerializableCommand) error {
 	}
 
 	return c.buffWriter.Flush()
+}
+
+func (c *TCPClient) deferSendCommand(buff []byte, delay uint64) error {
+	go func() {
+		time.Sleep(time.Duration(delay))
+		nn, err := c.buffWriter.Write(buff)
+		if err != nil {
+			return
+		}
+		if nn != len(buff) {
+			e := errors.New(fmt.Sprintf("not all the data is written, expecting %d but only %d", len(buff), nn))
+			log.Error(e)
+			return
+		}
+
+		err = c.buffWriter.Flush()
+		if err != nil {
+			log.Error(err)
+		}
+	}()
+	return nil
 }
 
 // GetResponseChannel implements the method required in the AsyncClient interface

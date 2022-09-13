@@ -48,7 +48,7 @@ type socket struct {
 
 	crash bool
 	drop  map[ID]bool
-	slow  map[ID]int
+	slow  map[ID]uint64
 	flaky map[ID]float64
 
 	lock sync.RWMutex // locking map nodes
@@ -62,12 +62,24 @@ func NewSocket(id ID, addrs map[ID]string) Socket {
 		nodes:     make(map[ID]Transport),
 		crash:     false,
 		drop:      make(map[ID]bool),
-		slow:      make(map[ID]int),
+		slow:      make(map[ID]uint64),
 		flaky:     make(map[ID]float64),
 	}
 
 	socket.nodes[id] = NewTransport(addrs[id])
 	socket.nodes[id].Listen()
+
+	// initialize delays
+	delayMap, ok := GetConfig().Delays[string(id)]
+	if ok {
+		for destID, _ := range addrs {
+			delay, ok2 := delayMap[string(destID)]
+			if ok2 {
+				// convert ms to ns
+				socket.slow[destID] = uint64(delay * float64(1_000_000))
+			}
+		}
+	}
 
 	return socket
 }
@@ -112,7 +124,7 @@ func (s *socket) Send(to ID, m interface{}) {
 	}
 
 	if delay, ok := s.slow[to]; ok && delay > 0 {
-		timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+		timer := time.NewTimer(time.Duration(delay))
 		go func() {
 			<-timer.C
 			t.Send(m)
@@ -223,8 +235,9 @@ func (s *socket) Drop(id ID, t int) {
 	}()
 }
 
+// Slow assign delay in ms
 func (s *socket) Slow(id ID, delay int, t int) {
-	s.slow[id] = delay
+	s.slow[id] = uint64(delay * 1_000_000) // convert ms to ns
 	timer := time.NewTimer(time.Duration(t) * time.Second)
 	go func() {
 		<-timer.C
