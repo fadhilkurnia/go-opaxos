@@ -381,6 +381,8 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 			fop.recoveryProcess(m.Slot)
 		}
 	}
+
+	fop.exec()
 }
 
 // TODO: conflict happened, need to do recovery
