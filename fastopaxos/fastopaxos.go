@@ -284,8 +284,8 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	// when there are already numQf P2b messages received, including P2b from itself,
 	// then the coordinator can decide whether to commit or recover
 	newEntry.quorum.ACK(fop.ID())
-	if newEntry.quorum.Total() == fop.numQF {
-		if newEntry.quorum.Size() == fop.numQF {
+	if newEntry.quorum.Total() >= fop.numQF {
+		if newEntry.quorum.Size() >= fop.numQF {
 			newEntry.commit = true
 			fop.broadcastCommit(directCmd.Slot, newEntry)
 			fop.exec()
@@ -361,8 +361,8 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		e.quorum.NACK(m.ID)
 	}
 
-	if e.quorum.Total() == fop.numQF {
-		if e.quorum.Size() == fop.numQF {
+	if e.quorum.Total() >= fop.numQF {
+		if e.quorum.Size() >= fop.numQF {
 			e.commit = true
 			fop.broadcastCommit(m.Slot, e)
 
