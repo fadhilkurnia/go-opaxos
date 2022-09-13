@@ -286,9 +286,11 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	newEntry.quorum.ACK(fop.ID())
 	if newEntry.quorum.Total() >= fop.numQF {
 		if newEntry.quorum.Size() >= fop.numQF {
-			newEntry.commit = true
-			fop.broadcastCommit(directCmd.Slot, newEntry)
-			fop.exec()
+			if !newEntry.commit {
+				newEntry.commit = true
+				fop.broadcastCommit(directCmd.Slot, newEntry)
+				fop.exec()
+			}
 		} else {
 			fop.recoveryProcess(directCmd.Slot)
 		}
@@ -363,20 +365,22 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 
 	if e.quorum.Total() >= fop.numQF {
 		if e.quorum.Size() >= fop.numQF {
-			e.commit = true
-			fop.broadcastCommit(m.Slot, e)
+			if !e.commit {
+				e.commit = true
+				fop.broadcastCommit(m.Slot, e)
 
-			// Ideally, before the coordinator receives |Qf| acks, the coordinator already
-			// received DirectCommand from client which contain clear command. Here, we handle
-			// if the coordinator receives |Qf| acks before the clear command.
-			if e.command == nil {
-				log.Debugf("want to execute but command is empty | s=%d bo=%s",
-					m.Slot, e.oriBallot)
-				e.resendClearCmd = true
-				return
+				// Ideally, before the coordinator receives |Qf| acks, the coordinator already
+				// received DirectCommand from client which contain clear command. Here, we handle
+				// if the coordinator receives |Qf| acks before the clear command.
+				if e.command == nil {
+					log.Debugf("want to execute but command is empty | s=%d bo=%s",
+						m.Slot, e.oriBallot)
+					e.resendClearCmd = true
+					return
+				}
+
+				fop.exec()
 			}
-
-			fop.exec()
 		} else {
 			fop.recoveryProcess(m.Slot)
 		}
