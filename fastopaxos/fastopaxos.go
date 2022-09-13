@@ -205,7 +205,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			// 2. this node is a non-coordinator and got P3 (commit) message from the coordinator
 			//    before getting DirectCommand from the client.
 			log.Debug("received DirectCommand for an already allocated entry")
-			newEntry = e
+			newEntry = fop.log[directCmd.Slot]
 			(*newEntry).share = directCmd.Share
 			(*newEntry).commandHandler = cmd
 			if len(directCmd.Command) > 0 {
