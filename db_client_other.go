@@ -686,8 +686,6 @@ func (c *UDSDBClient) SendCommand(req interface{}) error {
 		return err
 	}
 
-	c.buffWriter.Buffered()
-
 	return c.buffWriter.Flush()
 }
 

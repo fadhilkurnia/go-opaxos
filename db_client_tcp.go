@@ -3,7 +3,6 @@ package paxi
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"github.com/ailidani/paxi/log"
 	"io"
@@ -22,8 +21,9 @@ type TCPClient struct {
 
 	hostID     ID
 	connection net.Conn
-	buffWriter *bufio.Writer
 	buffReader *bufio.Reader
+	buffWriter *bufio.Writer
+	sendChan   chan SerializableCommand
 
 	buffWriterMutex sync.Mutex
 
@@ -54,6 +54,7 @@ func NewTCPClient(id ID) *TCPClient {
 		return c
 	}
 
+	c.sendChan = make(chan SerializableCommand, GetConfig().ChanBufferSize)
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
 	c.isAsync = false
@@ -68,6 +69,29 @@ func NewTCPClient(id ID) *TCPClient {
 			c.delay = uint64(delay * float64(1_000_000))
 		}
 	}
+
+	// start the sender to the server
+	go func() {
+		for cmd := range c.sendChan {
+			cmdBytes := cmd.Serialize()
+			buff := make([]byte, 5)
+			buff[0] = cmd.GetCommandType()
+			cmdLen := uint32(len(cmdBytes))
+			binary.BigEndian.PutUint32(buff[1:], cmdLen)
+			buff = append(buff, cmdBytes...)
+
+			// send request
+			log.Debugf("sending command type=%d len=%d", buff[0], cmdLen)
+			nn, werr := c.buffWriter.Write(buff)
+			if werr != nil {
+				log.Error(werr)
+			}
+			if nn != len(buff) {
+				log.Errorf("short write: %d, expected %d", nn, len(buff))
+			}
+			err = c.buffWriter.Flush()
+		}
+	}()
 
 	return c
 }
@@ -187,25 +211,13 @@ func (c *TCPClient) do(cmd SerializableCommand) (*CommandReply, error) {
 		log.Fatal("Using blocking method in a non-blocking client!")
 	}
 
-	cmdBytes := cmd.Serialize()
-	buff := make([]byte, 5)
-	buff[0] = cmd.GetCommandType()
-	cmdLen := uint32(len(cmdBytes))
-	binary.BigEndian.PutUint32(buff[1:], cmdLen)
-	buff = append(buff, cmdBytes...)
-
-	// send request
-	log.Debugf("sending command type=%d len=%d", buff[0], cmdLen)
-	_, err := c.buffWriter.Write(buff)
-	if err != nil {
-		return nil, err
-	}
-	c.buffWriter.Buffered()
-	err = c.buffWriter.Flush()
+	// send request to the server
+	c.sendChan <- cmd
 
 	var firstByte byte
 	var respLen uint32
 	var respLenByte [4]byte
+	var err error
 
 	// wait for response
 	for {
@@ -264,50 +276,18 @@ func (c *TCPClient) do(cmd SerializableCommand) (*CommandReply, error) {
 
 // SendCommand implements the method required in the AsyncClient interface
 func (c *TCPClient) SendCommand(cmd SerializableCommand) error {
-	cmdBytes := cmd.Serialize()
-
-	buff := make([]byte, 5)
-	buff[0] = cmd.GetCommandType()
-	binary.BigEndian.PutUint32(buff[1:], uint32(len(cmdBytes)))
-
-	buff = append(buff, cmdBytes...)
-
 	if c.delay > 0 {
-		return c.deferSendCommand(buff, c.delay)
+		return c.deferSendCommand(cmd, c.delay)
 	}
 
-	nn, err := c.buffWriter.Write(buff)
-	if err != nil {
-		return err
-	}
-	if nn != len(buff) {
-		e := errors.New(fmt.Sprintf("not all the data is written, expecting %d but only %d", len(buff), nn))
-		log.Error(e)
-		return e
-	}
-
-	return c.buffWriter.Flush()
+	c.sendChan <- cmd
+	return nil
 }
 
-func (c *TCPClient) deferSendCommand(buff []byte, delay uint64) error {
+func (c *TCPClient) deferSendCommand(cmd SerializableCommand, delay uint64) error {
 	go func() {
 		time.Sleep(time.Duration(delay))
-		c.buffWriterMutex.Lock()
-		defer c.buffWriterMutex.Unlock()
-		nn, err := c.buffWriter.Write(buff)
-		if err != nil {
-			return
-		}
-		if nn != len(buff) {
-			e := errors.New(fmt.Sprintf("not all the data is written, expecting %d but only %d", len(buff), nn))
-			log.Error(e)
-			return
-		}
-
-		err = c.buffWriter.Flush()
-		if err != nil {
-			log.Error(err)
-		}
+		c.sendChan <- cmd
 	}()
 	return nil
 }
@@ -316,6 +296,7 @@ func (c *TCPClient) deferSendCommand(buff []byte, delay uint64) error {
 func (c *TCPClient) GetResponseChannel() chan *CommandReply {
 	return c.responseCh
 }
+
 // ==============================================================================================
 // ========== End of the TCPClient's implementation for AsyncClient interface ===================
 // ==============================================================================================

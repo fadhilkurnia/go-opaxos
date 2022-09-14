@@ -121,7 +121,6 @@ func (c *UnixClient) do(cmd SerializableCommand) (*CommandReply, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.buffWriter.Buffered()
 	err = c.buffWriter.Flush()
 
 	var firstByte byte
@@ -260,8 +259,6 @@ func (c *UnixClient) SendCommand(cmd SerializableCommand) error {
 	if err != nil {
 		return err
 	}
-
-	c.buffWriter.Buffered()
 
 	return c.buffWriter.Flush()
 }

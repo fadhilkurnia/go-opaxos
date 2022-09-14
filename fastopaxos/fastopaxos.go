@@ -264,6 +264,9 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		log.Errorf("the coordinator get empty DirectCommand from client: %s", directCmd)
 	}
 
+	// the coordinator handling P2b from itself
+	newEntry.quorum.ACK(fop.ID())
+
 	if newEntry.commit {
 
 		if newEntry.command == nil {
@@ -280,10 +283,8 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		return
 	}
 
-	// the coordinator handling P2b from itself
 	// when there are already numQf P2b messages received, including P2b from itself,
 	// then the coordinator can decide whether to commit or recover
-	newEntry.quorum.ACK(fop.ID())
 	if newEntry.quorum.Total() >= fop.numQF {
 		if newEntry.quorum.Size() >= fop.numQF {
 			if !newEntry.commit {
@@ -292,6 +293,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 				fop.exec()
 			}
 		} else {
+			log.Errorf("s=%d | quorum total: %d, quorum size: %d", directCmd.Slot, newEntry.quorum.Total(), newEntry.quorum.Size())
 			fop.recoveryProcess(directCmd.Slot)
 		}
 	}
@@ -355,6 +357,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 	if m.OriBallot == e.oriBallot {
 		e.quorum.ACK(m.ID)
 	} else {
+		log.Errorf("non equal original-ballot number | s=%d bori=%s bori'=%s", m.Slot, e.oriBallot, m.OriBallot)
 		e.quorum.NACK(m.ID)
 	}
 
@@ -377,6 +380,7 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 				fop.exec()
 			}
 		} else {
+			log.Errorf("s=%d | quorum total: %d, quorum size: %d", m.Slot, e.quorum.Total(), e.quorum.Size())
 			fop.recoveryProcess(m.Slot)
 		}
 	}
