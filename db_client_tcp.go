@@ -7,7 +7,6 @@ import (
 	"github.com/ailidani/paxi/log"
 	"io"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -24,8 +23,6 @@ type TCPClient struct {
 	buffReader *bufio.Reader
 	buffWriter *bufio.Writer
 	sendChan   chan SerializableCommand
-
-	buffWriterMutex sync.Mutex
 
 	delay uint64 // (in ns) currently only work for async client interface
 
@@ -58,7 +55,7 @@ func NewTCPClient(id ID) *TCPClient {
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
 	c.isAsync = false
-	c.responseCh = make(chan *CommandReply, 1000)
+	c.responseCh = make(chan *CommandReply)
 
 	// set the delay
 	delayMap, ok := GetConfig().Delays["clients"]
