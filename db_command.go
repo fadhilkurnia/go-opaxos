@@ -102,7 +102,9 @@ type AdminCommandDrop struct {
 type ClientCommand struct {
 	CommandType byte
 	RawCommand  []byte
-	ReplyStream *bufio.Writer
+	ReplyStream_x *bufio.Writer
+
+	ReplyStream chan *CommandReply
 }
 
 // CommandReply is the reply for both DBCommand and AdminCommand.
@@ -116,50 +118,18 @@ type CommandReply struct {
 }
 
 func (c *ClientCommand) Reply(r *CommandReply) error {
-	replyStream := c.ReplyStream
-	cmdRepBuff := r.Serialize()
-	cmdRepLenBuff := make([]byte, 4)
-	cmdRepLen := len(cmdRepBuff)
-	binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
-
+	// defer sending reply to the client
 	if ServerToClientDelay > 0 {
-		return c.deferReply(TypeCommandReply, cmdRepLenBuff, cmdRepBuff, ServerToClientDelay)
+		go func() {
+			time.Sleep(time.Duration(ServerToClientDelay))
+			c.ReplyStream <- r
+		}()
+		return nil
 	}
 
-	if err := replyStream.WriteByte(TypeCommandReply); err != nil {
-		return err
-	}
-	if _, err := replyStream.Write(cmdRepLenBuff); err != nil {
-		return err
-	}
-	if _, err := replyStream.Write(cmdRepBuff); err != nil {
-		return err
-	}
-	return replyStream.Flush()
-}
+	// send reply to the client
+	c.ReplyStream <- r
 
-func (c *ClientCommand) deferReply(msgType byte, msgLenBuff []byte, buff []byte, delay uint64) error {
-	go func() {
-		time.Sleep(time.Duration(delay))
-		replyStream := c.ReplyStream
-		if err := replyStream.WriteByte(TypeCommandReply); err != nil {
-			log.Error(err)
-			return
-		}
-		if _, err := replyStream.Write(msgLenBuff); err != nil {
-			log.Error(err)
-			return
-		}
-		if _, err := replyStream.Write(buff); err != nil {
-			log.Error(err)
-			return
-		}
-		err := replyStream.Flush()
-		if err != nil {
-			log.Error(err)
-			return
-		}
-	}()
 	return nil
 }
 

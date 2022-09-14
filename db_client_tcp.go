@@ -8,6 +8,7 @@ import (
 	"github.com/ailidani/paxi/log"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -24,7 +25,9 @@ type TCPClient struct {
 	buffWriter *bufio.Writer
 	buffReader *bufio.Reader
 
-	delay uint64 // (in ns) currently only work for async client interface, used for blocking client
+	buffWriterMutex sync.Mutex
+
+	delay uint64 // (in ns) currently only work for async client interface
 
 	// used for blocking client behaviour
 	curCmdID uint32
@@ -282,6 +285,8 @@ func (c *TCPClient) SendCommand(cmd SerializableCommand) error {
 func (c *TCPClient) deferSendCommand(buff []byte, delay uint64) error {
 	go func() {
 		time.Sleep(time.Duration(delay))
+		c.buffWriterMutex.Lock()
+		defer c.buffWriterMutex.Unlock()
 		nn, err := c.buffWriter.Write(buff)
 		if err != nil {
 			return

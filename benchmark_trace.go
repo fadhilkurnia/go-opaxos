@@ -77,7 +77,6 @@ func (b *Benchmark) RunClientTracefile() {
 	}
 
 	latencies := make(chan time.Duration, 100_000)
-	encodeTimes := make(chan time.Duration, 100_000)
 
 	// gather the latencies from all clients
 	latWriterWaiter := sync.WaitGroup{}
@@ -86,13 +85,6 @@ func (b *Benchmark) RunClientTracefile() {
 		defer latWriterWaiter.Done()
 		for t := range latencies {
 			b.latency = append(b.latency, t)
-		}
-	}()
-	latWriterWaiter.Add(1)
-	go func() {
-		defer latWriterWaiter.Done()
-		for t := range encodeTimes {
-			b.encodeTime = append(b.encodeTime, t)
 		}
 	}()
 
@@ -121,19 +113,53 @@ func (b *Benchmark) RunClientTracefile() {
 
 			var clientErr error = nil
 			isClientFinished := false
-			timesUpFlag := make(chan bool)
-			receiverCh := dbClient.GetResponseChannel()
 
-			if b.T != 0 {
-				go func() {
-					time.Sleep(time.Duration(b.T) * time.Second)
-					timesUpFlag <- true
-				}()
-			}
+			// gather all responses from server
+			requestWaiter := sync.WaitGroup{}
+			requestWaiter.Add(1)
+			clientFinishFlag := make(chan int)
+			go func() {
+				defer requestWaiter.Done()
+				receiverCh := dbClient.GetResponseChannel()
+				totalMsgSent := -1
+				respCounter := 0
+
+				for respCounter != totalMsgSent {
+					select {
+					case totalMsgSent = <-clientFinishFlag:
+						log.Infof("finish sending, received %d from %d", respCounter, totalMsgSent)
+						clientFinishFlag = nil
+						break
+
+					case resp := <-receiverCh:
+						if resp.Code != CommandReplyOK {
+							log.Error("receive non-ok response")
+						}
+
+						latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+						respCounter++
+
+						// empty the receiver channel
+						nResp := len(receiverCh)
+						for nResp > 0 {
+							nResp--
+							resp = <-receiverCh
+							if resp.Code != CommandReplyOK {
+								log.Error("receive non-ok response")
+							}
+							latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
+							respCounter++
+						}
+						break
+
+					}
+				}
+			}()
 
 			// send command to server until finished
 			clientStartTime := time.Now()
 			reqCounter := 0
+			successReq := 0
 			for !isClientFinished {
 				cmd := commands[reqCounter]
 				var sentTime time.Time
@@ -164,14 +190,14 @@ func (b *Benchmark) RunClientTracefile() {
 
 				if clientErr != nil {
 					log.Errorf("failed to send command %v", clientErr)
+				} else {
+					successReq++
 				}
 
-				// wait for the response
-				resp := <-receiverCh
-				if resp.Code == CommandReplyOK {
-					latencies <- time.Now().Sub(time.Unix(0, resp.SentAt))
-				} else {
-					log.Error("receive non-ok response")
+				// stop if this client already send all commands
+				if reqCounter == len(commands) {
+					isClientFinished = true
+					continue
 				}
 
 				reqCounter++
@@ -193,12 +219,13 @@ func (b *Benchmark) RunClientTracefile() {
 			clientEndTime := time.Now()
 			log.Infof("Client-%d runtime = %v", clientID, clientEndTime.Sub(clientStartTime))
 			log.Infof("Client-%d request-rate = %f", clientID, float64(reqCounter)/clientEndTime.Sub(clientStartTime).Seconds())
+			clientFinishFlag <- successReq // inform the number of request sent to the response consumer
+			requestWaiter.Wait()           // wait until all the requests are responded
 		}(clientID, dbClient)
 	}
 
 	clientWaiter.Wait()    // wait until all the clients finish accepting responses
 	close(latencies)       // closing the latencies channel
-	close(encodeTimes)     // closing encodeTimes channel
 	latWriterWaiter.Wait() // wait until all latencies are recorded
 
 	t := time.Now().Sub(b.startTime)

@@ -110,6 +110,10 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 
 	clientReader := bufio.NewReader(conn)
 	clientWriter := bufio.NewWriter(conn)
+	clientWriterChan := make(chan *CommandReply, 1_000)
+
+	// running the sender for sending command's reply to client
+	go n.runResponseSender(clientWriterChan, clientWriter)
 
 	var err error
 	var firstByte byte
@@ -162,14 +166,14 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 
 		// handle AdminCommands
 		if AdminCommandTypes.Has(firstByte) {
-			n.handleIncomingAdminCommands(firstByte, cmdBuff, clientWriter)
+			n.handleIncomingAdminCommands(firstByte, cmdBuff, clientWriterChan)
 			continue
 		}
 
 		cmd := &ClientCommand{
-			CommandType: firstByte,
-			RawCommand:  cmdBuff,
-			ReplyStream: clientWriter,
+			CommandType:     firstByte,
+			RawCommand:      cmdBuff,
+			ReplyStream:     clientWriterChan,
 		}
 
 		log.Debugf("get command from client %x", cmdBuff)
@@ -185,7 +189,33 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 	}
 }
 
-func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replyStream *bufio.Writer) {
+func (n *node) runResponseSender(replyStream chan *CommandReply, clientWriter *bufio.Writer) {
+	for rep := range replyStream {
+		cmdRepBuff := rep.Serialize()
+		cmdRepLenBuff := make([]byte, 4)
+		cmdRepLen := len(cmdRepBuff)
+
+		if err := clientWriter.WriteByte(TypeCommandReply); err != nil {
+			log.Error(err)
+			continue
+		}
+		binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
+		if _, err := clientWriter.Write(cmdRepLenBuff); err != nil {
+			log.Error(err)
+			continue
+		}
+		if _, err := clientWriter.Write(cmdRepBuff); err != nil {
+			log.Error(err)
+			continue
+		}
+		if err := clientWriter.Flush(); err != nil {
+			log.Error(err)
+			continue
+		}
+	}
+}
+
+func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replyStreamChan chan *CommandReply) {
 	cmdReply := &CommandReply{
 		Code: CommandReplyOK,
 	}
@@ -215,26 +245,6 @@ func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replySt
 
 	}
 
-	// send the response
-	if err := n.sendCommandReply(replyStream, cmdReply); err != nil {
-		log.Errorf("failed to send reply: %v", err)
-	}
-}
-
-func (n *node) sendCommandReply(replyStream *bufio.Writer, cmdReplay *CommandReply) error {
-	cmdRepBuff := cmdReplay.Serialize()
-	cmdRepLenBuff := make([]byte, 4)
-	cmdRepLen := len(cmdRepBuff)
-
-	if err := replyStream.WriteByte(TypeCommandReply); err != nil {
-		return err
-	}
-	binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
-	if _, err := replyStream.Write(cmdRepLenBuff); err != nil {
-		return err
-	}
-	if _, err := replyStream.Write(cmdRepBuff); err != nil {
-		return err
-	}
-	return replyStream.Flush()
+	// send the response back to client
+	replyStreamChan <- cmdReply
 }
