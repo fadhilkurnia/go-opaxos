@@ -187,7 +187,14 @@ func (c *UnixClient) Start() *UnixClient {
 }
 
 func (c *UnixClient) putResponseToChannel() {
-	defer c.connection.Close()
+	defer func() {
+		if c.connection != nil {
+			err := c.connection.Close()
+			if err != nil {
+				log.Error(err)
+			}
+		}
+	}()
 
 	var err error = nil
 	var firstByte byte
