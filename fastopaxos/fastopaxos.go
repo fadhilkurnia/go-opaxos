@@ -206,11 +206,9 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			//    before getting DirectCommand from the client.
 			log.Debug("received DirectCommand for an already allocated entry")
 			newEntry = fop.log[directCmd.Slot]
-			(*newEntry).share = directCmd.Share
-			(*newEntry).commandHandler = cmd
-			if len(directCmd.Command) > 0 {
-				(*newEntry).command = directCmd.Command
-			}
+			fop.log[directCmd.Slot].share = directCmd.Share
+			fop.log[directCmd.Slot].commandHandler = cmd
+			fop.log[directCmd.Slot].command = directCmd.Command
 
 		} else {
 			// the slot is already used by another command
@@ -515,8 +513,9 @@ func (fop *FastOPaxos) exec() {
 			continue
 		}
 
+		// has not received direct command from client
 		if e.command == nil {
-			// has not received direct command from client
+			log.Warningf("committed but not ready: s=%d last_slot=%d", fop.execute, fop.slot)
 			break
 		}
 
