@@ -242,17 +242,14 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	}
 
 	// non-coordinator node needs to send P2b to the coordinator
-	// if the entry is not committed yet
 	if !fop.isCoordinator {
-		if !newEntry.commit {
-			fop.Send(fop.ballot.ID(), P2b{
-				Ballot:    fop.ballot,
-				ID:        fop.ID(),
-				Slot:      directCmd.Slot,
-				Share:     newEntry.share,
-				OriBallot: directCmd.OriBallot,
-			})
-		}
+		fop.Send(fop.ballot.ID(), P2b{
+			Ballot:    fop.ballot,
+			ID:        fop.ID(),
+			Slot:      directCmd.Slot,
+			Share:     newEntry.share,
+			OriBallot: directCmd.OriBallot,
+		})
 		return
 	}
 	// --- the action for a non-coordinator stops here, the following code
