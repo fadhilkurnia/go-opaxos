@@ -19,6 +19,7 @@ type entry struct {
 	ballot    Ballot      // the accepted ballot number
 	oriBallot Ballot      // the original ballot of the accepted secret-share
 	commit    bool        // commit indicates whether this entry is already committed or not
+	exec      bool        // exec indicates whether this entry is already executed, if true, commit must true
 	share     SecretShare // the accepted secret-share of value (single secret-share of command)
 
 	// field for the trusted node (and coordinator)
@@ -295,6 +296,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		if newEntry.quorum.Size() >= fop.numQF {
 			if !newEntry.commit {
 				newEntry.commit = true
+				newEntry.exec = true
 				fop.broadcastCommit(directCmd.Slot, newEntry)
 				fop.exec()
 			}
@@ -562,15 +564,15 @@ func (fop *FastOPaxos) exec() {
 		}
 
 		log.Debugf("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
-		if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
-			log.Debugf("send reply to client: %v", reply)
-			err := e.commandHandler.Reply(reply)
-			if err != nil {
-				log.Errorf("failed to send CommandReply: %v", err)
-			}
-		} else {
-			log.Errorf("not sending result to client since the cmd handler is empty: %v", e)
+		//if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
+		log.Debugf("send reply to client: %v", reply)
+		err := e.commandHandler.Reply(reply)
+		if err != nil {
+			log.Errorf("failed to send CommandReply: %v", err)
 		}
+		//} else {
+		//	log.Errorf("not sending result to client since the cmd handler is empty: %v", e)
+		//}
 
 		// clean the slot after the command is executed
 		delete(fop.log, fop.execute)
