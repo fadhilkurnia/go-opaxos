@@ -305,11 +305,11 @@ func (f *ClientCreator) Create() (paxi.Client, error) {
 func (f *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 	newClient := NewClient()
 
-	if !f.sequencerStarted {
-		f.startSequencer(newClient.targetSlot + 1)
-	}
+	//if !f.sequencerStarted {
+	//	f.startSequencer(newClient.targetSlot + 1)
+	//}
 
-	newClient.useSharedTargetSlot = true
+	newClient.useSharedTargetSlot = false
 	newClient.sharedTargetSlot = f.slotSequencer
 
 	return newClient, nil

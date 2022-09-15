@@ -147,24 +147,20 @@ func (fop *FastOPaxos) run() {
 		case dcmd := <-fop.rawCommands:
 			fop.handleClientDirectCommand(dcmd)
 
-			if fop.isCoordinator {
-				numDCmd := len(fop.rawCommands)
-				for numDCmd > 0 {
-					fop.handleClientDirectCommand(<-fop.rawCommands)
-					numDCmd--
-				}
+			numDCmd := len(fop.rawCommands)
+			for numDCmd > 0 {
+				fop.handleClientDirectCommand(<-fop.rawCommands)
+				numDCmd--
 			}
 			break
 
 		case pMsg := <-fop.protocolMessages:
 			fop.handleProtocolMessage(pMsg)
 
-			if fop.isCoordinator {
-				numPMsg := len(fop.protocolMessages)
-				for numPMsg > 0 {
-					fop.handleProtocolMessage(<-fop.protocolMessages)
-					numPMsg--
-				}
+			numPMsg := len(fop.protocolMessages)
+			for numPMsg > 0 {
+				fop.handleProtocolMessage(<-fop.protocolMessages)
+				numPMsg--
 			}
 			break
 
@@ -255,13 +251,15 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 
 	// non-coordinator node needs to send P2b to the coordinator
 	if !fop.isCoordinator {
-		fop.Send(fop.ballot.ID(), P2b{
-			Ballot:    fop.ballot,
-			ID:        fop.ID(),
-			Slot:      slot,
-			Share:     fop.log[slot].share,
-			OriBallot: directCmd.OriBallot,
-		})
+		if !fop.log[slot].commit {
+			fop.Send(fop.ballot.ID(), P2b{
+				Ballot:    fop.ballot,
+				ID:        fop.ID(),
+				Slot:      slot,
+				Share:     fop.log[slot].share,
+				OriBallot: directCmd.OriBallot,
+			})
+		}
 		return
 	}
 	// --- the action for a non-coordinator stops here, the following code
@@ -337,7 +335,7 @@ func (fop *FastOPaxos) handleProtocolMessage(pmsg interface{}) {
 
 func (fop *FastOPaxos) handleP2b(m P2b) {
 	// ignore outdated or future leadership term
-	if m.Ballot != fop.ballot || !fop.isCoordinator {
+	if m.Ballot != fop.ballot || m.Slot < fop.execute || !fop.isCoordinator {
 		log.Debugf("ignoring outdated or future proposal's response: %s", m)
 		return
 	}
