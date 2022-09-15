@@ -10,6 +10,7 @@ import (
 	"github.com/ailidani/paxi/log"
 	"github.com/vmihailenco/msgpack/v5"
 	"io"
+	"sync/atomic"
 	"time"
 )
 
@@ -117,7 +118,16 @@ type CommandReply struct {
 	Metadata  map[byte]interface{} `msgpack:"m,omitempty"` // metadata for measurements, the key is Metadata constant
 }
 
+var respCounter uint64 = 0
+
 func (c *ClientCommand) Reply(r *CommandReply) error {
+
+	if r.SentAt == 123 {
+		atomic.StoreUint64(&respCounter, 0)
+	}
+	rc := atomic.AddUint64(&respCounter, 1)
+	log.Infof("reply counter %d", rc)
+
 	// defer sending reply to the client
 	if ServerToClientDelay > 0 {
 		go func() {
