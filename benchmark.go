@@ -422,6 +422,7 @@ func (b *Benchmark) RunPipelineClient() {
 						if err != nil {
 							log.Error(err)
 						}
+						log.Infof("after probing the leader")
 
 						break
 
