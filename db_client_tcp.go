@@ -51,11 +51,11 @@ func NewTCPClient(id ID) *TCPClient {
 		return c
 	}
 
-	c.sendChan = make(chan SerializableCommand, GetConfig().ChanBufferSize)
+	c.sendChan = make(chan SerializableCommand)
 	c.buffWriter = bufio.NewWriter(c.connection)
 	c.buffReader = bufio.NewReader(c.connection)
 	c.isAsync = false
-	c.responseCh = make(chan *CommandReply)
+	c.responseCh = make(chan *CommandReply, GetConfig().ChanBufferSize)
 
 	// set the delay
 	delayMap, ok := GetConfig().Delays["clients"]
