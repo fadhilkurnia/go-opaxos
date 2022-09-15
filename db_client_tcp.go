@@ -117,7 +117,6 @@ func (c *TCPClient) putResponseToChannel() {
 	var nn int
 
 	//	get response from wire, parse, put to channel
-	respCtr := 0
 	for err == nil {
 		var msgBuff []byte
 		var resp *CommandReply
@@ -162,8 +161,6 @@ func (c *TCPClient) putResponseToChannel() {
 			}
 
 			c.responseCh <- resp
-			respCtr++
-			log.Warningf("response counter ", respCtr)
 		} else {
 			log.Errorf("unknown first byte sent by the server: %d", firstByte)
 		}

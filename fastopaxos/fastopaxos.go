@@ -566,7 +566,7 @@ func (fop *FastOPaxos) exec() {
 			reply.Data = value
 		}
 
-		log.Debugf("cmd executed: op=%d key=%v, value=%x", cmdType, cmd.Key, value)
+		log.Infof("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
 		if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
 			log.Debugf("send reply to client: %v", reply)
 			err := e.commandHandler.Reply(reply)
