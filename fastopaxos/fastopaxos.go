@@ -510,6 +510,7 @@ func (fop *FastOPaxos) exec() {
 
 		// a non-trusted node does not execute the command
 		if !fop.isTrusted {
+			log.Infof("id: %s", fop.ID())
 			// has not received the DirectCommand from client
 			if e.share == nil {
 				return
