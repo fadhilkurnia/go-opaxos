@@ -523,9 +523,6 @@ func (fop *FastOPaxos) exec() {
 
 		// has not received direct command from client
 		if e.command == nil {
-			//if fop.slot-fop.execute > 10_000 {
-			//	log.Warningf("[%s] committed but not ready: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
-			//}
 			break
 		}
 
@@ -563,7 +560,7 @@ func (fop *FastOPaxos) exec() {
 			reply.Data = value
 		}
 
-		log.Infof("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
+		log.Debugf("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
 		if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
 			log.Debugf("send reply to client: %v", reply)
 			err := e.commandHandler.Reply(reply)
@@ -583,8 +580,9 @@ func (fop *FastOPaxos) exec() {
 func (fop *FastOPaxos) handleGetMetadataRequest(req *paxi.ClientCommand) {
 	log.Debugf("handle get metadata request from client")
 	reply := &paxi.CommandReply{
-		Code: paxi.CommandReplyOK,
-		Data: nil,
+		Code:   paxi.CommandReplyOK,
+		Data:   nil,
+		SentAt: 123,
 	}
 	lep := fop.log[fop.execute]
 	le := entry{}
