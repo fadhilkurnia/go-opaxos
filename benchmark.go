@@ -343,7 +343,7 @@ func (b *Benchmark) RunCallbackClient() {
 
 // RunPipelineClient simple client, we do not gather history
 func (b *Benchmark) RunPipelineClient() {
-	latencies := make(chan time.Duration, 100_000)
+	latencies := make(chan time.Duration, 1_000_000)
 
 	// gather the latencies from all clients
 	latWriterWaiter := sync.WaitGroup{}
@@ -407,14 +407,18 @@ func (b *Benchmark) RunPipelineClient() {
 			clientFinishFlag := make(chan int)
 			go func() {
 				defer requestWaiter.Done()
-				receiverCh := dbClient.GetResponseChannel()
+				receiverCh := clients[clientID-1].GetResponseChannel()
 				totalMsgSent := -1
 				respCounter := 0
+
+				if receiverCh == nil {
+					log.Errorf("client's receiver channel is null")
+				}
 
 				for respCounter != totalMsgSent {
 					select {
 					case totalMsgSent = <-clientFinishFlag:
-						log.Infof("finish sending, received %d from %d", respCounter, totalMsgSent)
+						log.Infof("finish sending, received %d from %d, incoming response: %d", respCounter, totalMsgSent, len(receiverCh))
 						clientFinishFlag = nil
 
 						//for debugging purpose: get the latest entry from the leader
