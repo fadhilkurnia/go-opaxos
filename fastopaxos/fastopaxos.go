@@ -281,11 +281,12 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			log.Fatalf("command is still empty: %v", fop.log[slot])
 		}
 
+		e := fop.log[slot]
 		// If the entry is already committed then the coordinator just need to execute it without
 		// broadcasting commit. This is possible if previously the coordinator already
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
 		fop.exec()
-		if fop.log[slot].resendClearCmd {
+		if e.resendClearCmd {
 			fop.broadcastClearCommand(directCmd.Slot, fop.log[slot])
 		}
 		return
