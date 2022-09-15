@@ -526,9 +526,9 @@ func (fop *FastOPaxos) exec() {
 
 		// has not received direct command from client
 		if e.command == nil {
-			if fop.slot-fop.execute > 10_000 {
-				log.Warningf("[%s] committed but not ready: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
-			}
+			//if fop.slot-fop.execute > 10_000 {
+			//	log.Warningf("[%s] committed but not ready: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
+			//}
 			break
 		}
 
