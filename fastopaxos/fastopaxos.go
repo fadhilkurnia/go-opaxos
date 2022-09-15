@@ -526,6 +526,7 @@ func (fop *FastOPaxos) exec() {
 
 		// has not received direct command from client
 		if e.command == nil {
+			log.Infof("cmd not ready s=%d q=%d", fop.execute, e.quorum.Total())
 			break
 		}
 
