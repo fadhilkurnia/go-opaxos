@@ -205,11 +205,13 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		return
 	}
 
-	var newEntry *entry = nil
+	newEntryRequired := true
+	slot := directCmd.Slot
 
 	log.Debugf("handling DirectCommand from client: b=%s s=%d bo=%s lencmd=%d",
-		fop.ballot, directCmd.Slot, directCmd.OriBallot, len(directCmd.Command))
-	if e, exist := fop.log[directCmd.Slot]; exist {
+		fop.ballot, slot, directCmd.OriBallot, len(directCmd.Command))
+	if e, exist := fop.log[slot]; exist {
+		newEntryRequired = false
 		if e.oriBallot == directCmd.OriBallot {
 			// the slot is already exist, this is possible in two cases:ß
 			// 1. this node is a coordinator and got P2b messages first from other nodes before
@@ -217,10 +219,10 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			// 2. this node is a non-coordinator and got P3 (commit) message from the coordinator
 			//    before getting DirectCommand from the client.
 			log.Debug("received DirectCommand for an already allocated entry")
-			newEntry = fop.log[directCmd.Slot]
-			fop.log[directCmd.Slot].share = directCmd.Share
-			fop.log[directCmd.Slot].commandHandler = cmd
-			fop.log[directCmd.Slot].command = directCmd.Command
+			fop.log[slot].share = directCmd.Share
+			fop.log[slot].commandHandler = cmd
+			fop.log[slot].command = directCmd.Command
+
 
 		} else {
 			// the slot is already used by another command
@@ -236,8 +238,8 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	}
 
 	// allocate a new entry with the given slot
-	if newEntry == nil {
-		newEntry = &entry{
+	if newEntryRequired {
+		fop.log[slot] = &entry{
 			ballot:         fop.ballot,
 			oriBallot:      directCmd.OriBallot,
 			commit:         false,
@@ -245,11 +247,10 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			command:        directCmd.Command,
 			commandHandler: cmd,
 		}
-		fop.log[directCmd.Slot] = newEntry
-		fop.slot = paxi.Max(fop.slot, directCmd.Slot)
+		fop.slot = paxi.Max(fop.slot, slot)
 
 		if fop.isCoordinator {
-			fop.log[directCmd.Slot].quorum = paxi.NewQuorum()
+			fop.log[slot].quorum = paxi.NewQuorum()
 		}
 	}
 
@@ -258,8 +259,8 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		fop.Send(fop.ballot.ID(), P2b{
 			Ballot:    fop.ballot,
 			ID:        fop.ID(),
-			Slot:      directCmd.Slot,
-			Share:     newEntry.share,
+			Slot:      slot,
+			Share:     fop.log[slot].share,
 			OriBallot: directCmd.OriBallot,
 		})
 		return
@@ -272,37 +273,38 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 	}
 
 	// the coordinator handling P2b from itself
-	newEntry.quorum.ACK(fop.ID())
+	fop.log[slot].quorum.ACK(fop.ID())
 
-	if newEntry.commit {
+	if fop.log[slot].commit {
 
-		if newEntry.command == nil {
-			log.Fatalf("command is still empty: %v", newEntry)
+		if fop.log[slot].command == nil {
+			log.Fatalf("command is still empty: %v", fop.log[slot])
 		}
 
 		// If the entry is already committed then the coordinator just need to execute it without
 		// broadcasting commit. This is possible if previously the coordinator already
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
 		fop.exec()
-		if newEntry.resendClearCmd {
-			fop.broadcastClearCommand(directCmd.Slot, newEntry)
+		if fop.log[slot].resendClearCmd {
+			fop.broadcastClearCommand(directCmd.Slot, fop.log[slot])
 		}
 		return
 	}
 
 	// when there are already numQf P2b messages received, including P2b from itself,
 	// then the coordinator can decide whether to commit or recover
-	if newEntry.quorum.Total() >= fop.numQF {
-		if newEntry.quorum.Size() >= fop.numQF {
-			if !newEntry.commit {
-				newEntry.commit = true
-				newEntry.exec = true
-				fop.broadcastCommit(directCmd.Slot, newEntry)
+	if fop.log[slot].quorum.Total() >= fop.numQF {
+		if fop.log[slot].quorum.Size() >= fop.numQF {
+			if !fop.log[slot].commit {
+				fop.log[slot].commit = true
+				fop.log[slot].exec = true
+				fop.broadcastCommit(slot, fop.log[slot])
 				fop.exec()
 			}
 		} else {
-			log.Errorf("s=%d | quorum total: %d, quorum size: %d", directCmd.Slot, newEntry.quorum.Total(), newEntry.quorum.Size())
-			fop.recoveryProcess(directCmd.Slot)
+			log.Errorf("s=%d | quorum total: %d, quorum size: %d",
+				directCmd.Slot, fop.log[slot].quorum.Total(), fop.log[slot].quorum.Size())
+			fop.recoveryProcess(slot)
 		}
 	}
 
@@ -341,11 +343,12 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 		return
 	}
 
-	e, exist := fop.log[m.Slot]
+	slot := m.Slot
+	_, exist := fop.log[slot]
 	if !exist {
 		log.Debugf("receives P2b from other nodes before DirectCommand from client: s=%d b=%s bo=%s",
 			m.Slot, m.Ballot, m.OriBallot)
-		e = &entry{
+		fop.log[slot] = &entry{
 			ballot:         m.Ballot,
 			oriBallot:      m.OriBallot,
 			commit:         false,
@@ -354,41 +357,42 @@ func (fop *FastOPaxos) handleP2b(m P2b) {
 			command:        nil,
 			commandHandler: nil,
 		}
-		fop.log[m.Slot] = e
 		fop.slot = paxi.Max(fop.slot, m.Slot)
 
 	}
 
 	log.Debugf("s=%d e=%d | handling proposal's response: %s", fop.slot, fop.execute, m)
 
-	e.propResponses = append(e.propResponses, &m)
-	if m.OriBallot == e.oriBallot {
-		e.quorum.ACK(m.ID)
+	fop.log[slot].propResponses = append(fop.log[slot].propResponses, &m)
+	if m.OriBallot == fop.log[slot].oriBallot {
+		fop.log[slot].quorum.ACK(m.ID)
 	} else {
-		log.Errorf("non equal original-ballot number | s=%d bori=%s bori'=%s", m.Slot, e.oriBallot, m.OriBallot)
-		e.quorum.NACK(m.ID)
+		log.Errorf("non equal original-ballot number | s=%d bori=%s bori'=%s",
+			m.Slot, fop.log[slot].oriBallot, m.OriBallot)
+		fop.log[slot].quorum.NACK(m.ID)
 	}
 
-	if e.quorum.Total() >= fop.numQF {
-		if e.quorum.Size() >= fop.numQF {
-			if !e.commit {
-				e.commit = true
-				fop.broadcastCommit(m.Slot, e)
+	if fop.log[slot].quorum.Total() >= fop.numQF {
+		if fop.log[slot].quorum.Size() >= fop.numQF {
+			if !fop.log[slot].commit {
+				fop.log[slot].commit = true
+				fop.broadcastCommit(slot, fop.log[slot])
 
 				// Ideally, before the coordinator receives |Qf| acks, the coordinator already
 				// received DirectCommand from client which contain clear command. Here, we handle
 				// if the coordinator receives |Qf| acks before the clear command.
-				if e.command == nil {
+				if fop.log[slot].command == nil {
 					log.Debugf("want to execute but command is empty | s=%d bo=%s",
-						m.Slot, e.oriBallot)
-					e.resendClearCmd = true
+						m.Slot, fop.log[slot].oriBallot)
+					fop.log[slot].resendClearCmd = true
 					return
 				}
 
 				fop.exec()
 			}
 		} else {
-			log.Errorf("s=%d | quorum total: %d, quorum size: %d", m.Slot, e.quorum.Total(), e.quorum.Size())
+			log.Errorf("s=%d | quorum total: %d, quorum size: %d",
+				m.Slot, fop.log[slot].quorum.Total(), fop.log[slot].quorum.Size())
 			fop.recoveryProcess(m.Slot)
 		}
 	}
