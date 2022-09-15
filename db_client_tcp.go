@@ -22,7 +22,7 @@ type TCPClient struct {
 	connection net.Conn
 	buffReader *bufio.Reader
 	buffWriter *bufio.Writer
-	sendChan   chan SerializableCommand
+	sendChan   chan SerializableCommand // sendChan is the input for writer to the buffWriter
 
 	delay uint64 // (in ns) currently only work for async client interface
 
@@ -114,6 +114,7 @@ func (c *TCPClient) putResponseToChannel() {
 	var firstByte byte
 	var respLen uint32
 	var respLenByte [4]byte
+	var nn int
 
 	//	get response from wire, parse, put to channel
 	for err == nil {
@@ -131,17 +132,25 @@ func (c *TCPClient) putResponseToChannel() {
 		}
 
 		if firstByte == TypeCommandReply {
-			_, err = io.ReadAtLeast(c.buffReader, respLenByte[:], 4)
+			nn, err = io.ReadAtLeast(c.buffReader, respLenByte[:], 4)
 			if err != nil {
 				log.Errorf("fail to read command length %v", err)
+				break
+			}
+			if nn != 4 {
+				log.Errorf("short read, expected 4 but only %d", nn)
 				break
 			}
 
 			respLen = binary.BigEndian.Uint32(respLenByte[:])
 			msgBuff = make([]byte, respLen)
-			_, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
+			nn, err = io.ReadAtLeast(c.buffReader, msgBuff, int(respLen))
 			if err != nil {
 				log.Errorf("fail to read response data %v", err)
+				break
+			}
+			if nn != int(respLen) {
+				log.Errorf("short read, expected %d but only %d", respLen, nn)
 				break
 			}
 
@@ -156,6 +165,8 @@ func (c *TCPClient) putResponseToChannel() {
 			log.Errorf("unknown first byte sent by the server: %d", firstByte)
 		}
 	}
+
+	log.Fatalf("exiting client's response consumer loop: %v", err)
 }
 
 // ==============================================================================================

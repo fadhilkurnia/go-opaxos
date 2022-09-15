@@ -258,7 +258,7 @@ func (c *Client) SendCommand(cmd paxi.SerializableCommand) error {
 }
 
 func (c *Client) GetResponseChannel() chan *paxi.CommandReply {
-	return c.responseChan
+	return c.nodeClients[c.coordinatorID].GetResponseChannel()
 }
 
 func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
@@ -291,7 +291,6 @@ func (f *ClientCreator) Create() (paxi.Client, error) {
 func (f *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 	newClient := NewClient()
 	atomic.StoreUint64(&f.lastSlotNumber, uint64(newClient.targetSlot))
-	newClient.responseChan = newClient.nodeClients[newClient.coordinatorID].GetResponseChannel()
 
 	newClient.useSharedTargetSlot = true
 	newClient.sharedTargetSlot = &f.lastSlotNumber
