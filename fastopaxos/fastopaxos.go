@@ -529,44 +529,11 @@ func (fop *FastOPaxos) exec() {
 			break
 		}
 
-		// prepare response for client
-		reply := &paxi.CommandReply{
-			Code:   paxi.CommandReplyOK,
-			SentAt: 0,
-			Data:   nil,
-		}
+		cmdReply := fop.execCommand(&e.command, fop.execute, e)
 
-		// parse command
-		var cmd paxi.Command
-		cmdType := paxi.GetDBCommandTypeFromBuffer(e.command)
-		switch cmdType {
-		case paxi.TypeDBGetCommand:
-			dbCmd := paxi.DeserializeDBCommandGet(e.command)
-			cmd.Key = dbCmd.Key
-			reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
-		case paxi.TypeDBPutCommand:
-			dbCmd := paxi.DeserializeDBCommandPut(e.command)
-			cmd.Key = dbCmd.Key
-			cmd.Value = dbCmd.Value
-			reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
-		default:
-			log.Errorf("unknown client db command")
-			reply.Code = paxi.CommandReplyErr
-			reply.Data = []byte("unknown client db command")
-			return
-		}
-
-		value := fop.Execute(cmd)
-
-		// reply with data for write operation
-		if cmd.Value == nil {
-			reply.Data = value
-		}
-
-		log.Debugf("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
 		//if e.commandHandler != nil && e.commandHandler.ReplyStream != nil {
-		log.Debugf("send reply to client: %v", reply)
-		err := e.commandHandler.Reply(reply)
+		log.Debugf("send reply to client: %v", cmdReply)
+		err := e.commandHandler.Reply(cmdReply)
 		if err != nil {
 			log.Errorf("failed to send CommandReply: %v", err)
 		}
@@ -578,6 +545,45 @@ func (fop *FastOPaxos) exec() {
 		delete(fop.log, fop.execute)
 		fop.execute++
 	}
+}
+
+func (fop FastOPaxos) execCommand(byteCmd *paxi.BytesCommand, slot int, e *entry) *paxi.CommandReply {
+	// prepare response for client
+	reply := &paxi.CommandReply{
+		Code:   paxi.CommandReplyOK,
+		SentAt: 0,
+		Data:   nil,
+	}
+
+	// parse command
+	var cmd paxi.Command
+	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
+	switch cmdType {
+	case paxi.TypeDBGetCommand:
+		dbCmd := paxi.DeserializeDBCommandGet(*byteCmd)
+		cmd.Key = dbCmd.Key
+		reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+	case paxi.TypeDBPutCommand:
+		dbCmd := paxi.DeserializeDBCommandPut(*byteCmd)
+		cmd.Key = dbCmd.Key
+		cmd.Value = dbCmd.Value
+		reply.SentAt = dbCmd.SentAt // forward sentAt from client back to client
+	default:
+		log.Errorf("unknown client db command")
+		reply.Code = paxi.CommandReplyErr
+		reply.Data = []byte("unknown client db command")
+		return reply
+	}
+
+	value := fop.Execute(cmd)
+
+	// reply with data for write operation
+	if cmd.Value == nil {
+		reply.Data = value
+	}
+
+	log.Infof("cmd executed: s=%d op=%d key=%v, value=%x", fop.execute, cmdType, cmd.Key, value)
+	return reply
 }
 
 func (fop *FastOPaxos) handleGetMetadataRequest(req *paxi.ClientCommand) {
