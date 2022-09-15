@@ -152,6 +152,8 @@ func (c *TCPClient) putResponseToChannel() {
 			}
 
 			c.responseCh <- resp
+		} else {
+			log.Errorf("unknown first byte sent by the server: %d", firstByte)
 		}
 	}
 }
