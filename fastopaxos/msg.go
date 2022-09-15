@@ -171,5 +171,8 @@ func DeserializeGetMetadataRequest(buff []byte) GetMetadataRequest {
 }
 
 type GetMetadataResponse struct {
-	NextSlot int `msgpack:"s"`
+	NextSlot  int   `msgpack:"s"`
+
+	Execute   int   `msgpack:"x"`
+	LastEntry entry `msgpack:"e"`
 }

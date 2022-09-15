@@ -29,6 +29,17 @@ type entry struct {
 	resendClearCmd bool
 }
 
+func (e entry) String() string {
+	qt := 0
+	qz := 0
+	if e.quorum != nil {
+		qt = e.quorum.Total()
+		qz = e.quorum.Size()
+	}
+	return fmt.Sprintf("entry{bal: %s, bori: %s, commit: %t, cmd: %x, q_total: %d, q_size: %d, p2b: %v}",
+		e.ballot, e.oriBallot, e.commit, e.command, qt, qz, e.propResponses)
+}
+
 // FastOPaxos instance in a single Node
 type FastOPaxos struct {
 	paxi.Node // extending generic paxi.Node
@@ -578,8 +589,15 @@ func (fop *FastOPaxos) handleGetMetadataRequest(req *paxi.ClientCommand) {
 		Code: paxi.CommandReplyOK,
 		Data: nil,
 	}
+	lep := fop.log[fop.execute]
+	le := entry{}
+	if lep != nil {
+		le = *lep
+	}
 	getMetadataResp := GetMetadataResponse{
-		NextSlot: fop.slot,
+		NextSlot:  fop.slot,
+		Execute:   fop.execute,
+		LastEntry: le,
 	}
 	buff, _ := msgpack.Marshal(getMetadataResp)
 	reply.Data = buff

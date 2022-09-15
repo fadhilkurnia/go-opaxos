@@ -128,6 +128,7 @@ func (c *Client) getConsensusMetadata() {
 	c.targetSlot = metadata.NextSlot
 
 	log.Debugf("starting slot from %d", c.targetSlot+1)
+	log.Infof("leader condition: s=%d exc=%d, entry=%v", metadata.NextSlot, metadata.NextSlot, metadata.LastEntry)
 }
 
 // Get implements paxi.Client interface
