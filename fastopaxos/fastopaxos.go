@@ -237,7 +237,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		fop.slot = paxi.Max(fop.slot, directCmd.Slot)
 
 		if fop.isCoordinator {
-			newEntry.quorum = paxi.NewQuorum()
+			fop.log[directCmd.Slot].quorum = paxi.NewQuorum()
 		}
 	}
 
@@ -323,7 +323,7 @@ func (fop *FastOPaxos) handleProtocolMessage(pmsg interface{}) {
 
 func (fop *FastOPaxos) handleP2b(m P2b) {
 	// ignore outdated or future leadership term
-	if m.Ballot != fop.ballot || m.Slot < fop.execute || !fop.isCoordinator {
+	if m.Ballot != fop.ballot || !fop.isCoordinator {
 		log.Debugf("ignoring outdated or future proposal's response: %s", m)
 		return
 	}
@@ -494,6 +494,9 @@ func (fop *FastOPaxos) exec() {
 	for {
 		e, ok := fop.log[fop.execute]
 		if !ok || !e.commit {
+			if fop.slot-fop.execute > 10_000 {
+				log.Warningf("[%s] committed is way behind: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
+			}
 			break
 		}
 
@@ -512,7 +515,7 @@ func (fop *FastOPaxos) exec() {
 
 		// has not received direct command from client
 		if e.command == nil {
-			if fop.slot - fop.execute > 10_000 {
+			if fop.slot-fop.execute > 10_000 {
 				log.Warningf("[%s] committed but not ready: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
 			}
 			break
