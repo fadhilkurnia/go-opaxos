@@ -210,9 +210,9 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 
 	log.Debugf("handling DirectCommand from client: b=%s s=%d bo=%s lencmd=%d",
 		fop.ballot, slot, directCmd.OriBallot, len(directCmd.Command))
-	if e, exist := fop.log[slot]; exist {
+	if _, exist := fop.log[slot]; exist {
 		newEntryRequired = false
-		if e.oriBallot == directCmd.OriBallot {
+		if fop.log[slot].oriBallot == directCmd.OriBallot {
 			// the slot is already exist, this is possible in two cases:ß
 			// 1. this node is a coordinator and got P2b messages first from other nodes before
 			//    getting DirectCommand from the client.
@@ -222,7 +222,6 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			fop.log[slot].share = directCmd.Share
 			fop.log[slot].commandHandler = cmd
 			fop.log[slot].command = directCmd.Command
-
 
 		} else {
 			// the slot is already used by another command
@@ -281,14 +280,13 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 			log.Fatalf("command is still empty: %v", fop.log[slot])
 		}
 
-		e := fop.log[slot]
 		// If the entry is already committed then the coordinator just need to execute it without
 		// broadcasting commit. This is possible if previously the coordinator already
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
-		fop.exec()
-		if e.resendClearCmd {
-			fop.broadcastClearCommand(directCmd.Slot, e)
+		if fop.log[slot].resendClearCmd {
+			fop.broadcastClearCommand(directCmd.Slot, fop.log[slot])
 		}
+		fop.exec()
 		return
 	}
 

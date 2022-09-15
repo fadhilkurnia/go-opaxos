@@ -422,11 +422,11 @@ func (b *Benchmark) RunPipelineClient() {
 						clientFinishFlag = nil
 
 						//for debugging purpose: get the latest entry from the leader
-						_, err := b.ClientCreator.CreateAsyncClient()
-						if err != nil {
-							log.Error(err)
-						}
-						log.Infof("after probing the leader")
+						//_, err := b.ClientCreator.CreateAsyncClient()
+						//if err != nil {
+						//	log.Error(err)
+						//}
+						//log.Infof("after probing the leader")
 
 						break
 
