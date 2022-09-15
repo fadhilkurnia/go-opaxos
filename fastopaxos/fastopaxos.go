@@ -505,9 +505,6 @@ func (fop *FastOPaxos) exec() {
 	for {
 		e, ok := fop.log[fop.execute]
 		if !ok || !e.commit {
-			if fop.slot-fop.execute > 10_000 {
-				log.Warningf("[%s] committed is way behind: s=%d last_slot=%d", fop.ID(), fop.execute, fop.slot)
-			}
 			break
 		}
 
