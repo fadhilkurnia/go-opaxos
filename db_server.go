@@ -200,16 +200,27 @@ func (n *node) runResponseSender(replyStream chan *CommandReply, clientWriter *b
 			continue
 		}
 		binary.BigEndian.PutUint32(cmdRepLenBuff, uint32(cmdRepLen))
-		if _, err := clientWriter.Write(cmdRepLenBuff); err != nil {
+		nn, err := clientWriter.Write(cmdRepLenBuff)
+		if err != nil {
 			log.Error(err)
 			continue
 		}
-		if _, err := clientWriter.Write(cmdRepBuff); err != nil {
+		if nn != len(cmdRepLenBuff) {
+			log.Errorf("short write: %d, expected %d", nn, len(cmdRepLenBuff))
+			continue
+		}
+
+		nn, err = clientWriter.Write(cmdRepBuff)
+		if err != nil {
 			log.Error(err)
 			continue
 		}
-		if err := clientWriter.Flush(); err != nil {
-			log.Error(err)
+		if nn != len(cmdRepBuff) {
+			log.Errorf("short write: %d, expected %d", nn, len(cmdRepBuff))
+			continue
+		}
+		if ferr := clientWriter.Flush(); ferr != nil {
+			log.Error(ferr)
 			continue
 		}
 	}
