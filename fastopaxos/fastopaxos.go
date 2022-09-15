@@ -287,7 +287,7 @@ func (fop *FastOPaxos) handleClientDirectCommand(cmd *paxi.ClientCommand) {
 		// received |Qf| P2b messages before receiving DirectCommand from the client.
 		fop.exec()
 		if e.resendClearCmd {
-			fop.broadcastClearCommand(directCmd.Slot, fop.log[slot])
+			fop.broadcastClearCommand(directCmd.Slot, e)
 		}
 		return
 	}
