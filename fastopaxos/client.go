@@ -7,6 +7,7 @@ import (
 	"github.com/ailidani/paxi/opaxos"
 	"github.com/vmihailenco/msgpack/v5"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,7 +23,7 @@ type Client struct {
 
 	// used to share the next slot among multiple clients
 	useSharedTargetSlot bool
-	sharedTargetSlot    chan int
+	sharedTargetSlot    *int64
 
 	ssAlgorithm   string
 	threshold     int
@@ -180,7 +181,7 @@ func (c *Client) doDirectCommand(cmdBuff []byte) (*paxi.CommandReply, error) {
 	c.ballot.Next(c.clientID)
 
 	if c.useSharedTargetSlot {
-		c.targetSlot = <-c.sharedTargetSlot
+		c.targetSlot = int(atomic.AddInt64(c.sharedTargetSlot, 1))
 	} else {
 		c.targetSlot++
 	}
@@ -266,7 +267,7 @@ func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 	c.ballot.Next(c.clientID)
 
 	if c.useSharedTargetSlot {
-		c.targetSlot = <-c.sharedTargetSlot
+		c.targetSlot = int(atomic.AddInt64(c.sharedTargetSlot, 1))
 	} else {
 		c.targetSlot++
 	}
@@ -281,22 +282,23 @@ func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
 }
 
 type ClientCreator struct {
+	lastSlotNumber int64
 	sequencerStarted bool
-	slotSequencer    chan int
+	//slotSequencer    chan int
 	paxi.BenchmarkClientCreator
 }
 
-func (f *ClientCreator) startSequencer(initialSlot int) {
-	f.sequencerStarted = true
-	f.slotSequencer = make(chan int, 100_000)
-	go func() {
-		currentSlot := initialSlot
-		for true {
-			f.slotSequencer <- currentSlot
-			currentSlot++
-		}
-	}()
-}
+//func (f *ClientCreator) startSequencer(initialSlot int) {
+//	f.sequencerStarted = true
+//	f.slotSequencer = make(chan int, 100_000)
+//	go func() {
+//		currentSlot := initialSlot
+//		for true {
+//			f.slotSequencer <- currentSlot
+//			currentSlot++
+//		}
+//	}()
+//}
 
 func (f *ClientCreator) Create() (paxi.Client, error) {
 	panic("unimplemented")
@@ -305,12 +307,13 @@ func (f *ClientCreator) Create() (paxi.Client, error) {
 func (f *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 	newClient := NewClient()
 
-	//if !f.sequencerStarted {
-	//	f.startSequencer(newClient.targetSlot + 1)
-	//}
+	if !f.sequencerStarted {
+		f.sequencerStarted = true
+		atomic.StoreInt64(&f.lastSlotNumber, int64(newClient.targetSlot))
+	}
 
-	newClient.useSharedTargetSlot = false
-	newClient.sharedTargetSlot = f.slotSequencer
+	newClient.useSharedTargetSlot = true
+	newClient.sharedTargetSlot = &f.lastSlotNumber
 
 	return newClient, nil
 }
