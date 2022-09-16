@@ -147,11 +147,14 @@ func (fop *FastOPaxos) run() {
 		case dcmd := <-fop.rawCommands:
 			fop.handleClientDirectCommand(dcmd)
 
-			numDCmd := len(fop.rawCommands)
-			for numDCmd > 0 {
-				fop.handleClientDirectCommand(<-fop.rawCommands)
-				numDCmd--
+			if fop.isCoordinator {
+				numDCmd := len(fop.rawCommands)
+				for numDCmd > 0 {
+					fop.handleClientDirectCommand(<-fop.rawCommands)
+					numDCmd--
+				}
 			}
+
 			break
 
 		case pMsg := <-fop.protocolMessages:

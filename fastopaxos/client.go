@@ -312,7 +312,7 @@ func (f *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 		atomic.StoreInt64(&f.lastSlotNumber, int64(newClient.targetSlot))
 	}
 
-	newClient.useSharedTargetSlot = true
+	newClient.useSharedTargetSlot = false
 	newClient.sharedTargetSlot = &f.lastSlotNumber
 
 	return newClient, nil
