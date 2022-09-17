@@ -110,7 +110,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 
 	clientReader := bufio.NewReader(conn)
 	clientWriter := bufio.NewWriter(conn)
-	clientWriterChan := make(chan *CommandReply, 200_000)
+	clientWriterChan := make(chan *CommandReply)
 
 	// running the sender for sending command's reply to client
 	go n.runResponseSender(clientWriterChan, clientWriter)

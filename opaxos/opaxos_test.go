@@ -1,9 +1,10 @@
 package opaxos
 
 import (
-	"bufio"
-	"bytes"
 	"github.com/ailidani/paxi"
+	"math/rand"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -53,12 +54,11 @@ func TestNormalRun(t *testing.T) {
 	}
 
 	// node1 starting phase-2
-	var b bytes.Buffer
 	node1.Propose(&SecretSharedCommand{
 		ClientCommand: &paxi.ClientCommand{
 			CommandType: paxi.TypeDBPutCommand,
 			RawCommand:  chosenValueBuffer,
-			ReplyStream: bufio.NewWriter(&b),
+			ReplyStream: nil,
 		},
 		SSTime:        ssTime,
 		Shares:        shares,
@@ -129,12 +129,11 @@ func TestRecoveryProcess(t *testing.T) {
 	node5.Drop(id1, 2)
 
 	// node1 starting phase-2
-	var b bytes.Buffer
 	node1.Propose(&SecretSharedCommand{
 		ClientCommand: &paxi.ClientCommand{
 			CommandType: paxi.TypeDBPutCommand,
 			RawCommand:  chosenValueBuffer,
-			ReplyStream: bufio.NewWriter(&b),
+			ReplyStream: nil,
 		},
 		SSTime:        ssTime,
 		Shares:        shares,
@@ -199,12 +198,11 @@ func TestRecoveryMultipleSlots(t *testing.T) {
 	chosenValueBuffer2 := chosenValueCommand2.Serialize()
 	shares1, ssTime1, _ := node1.defaultSSWorker.SecretShareCommand(chosenValueBuffer1)
 	shares2, ssTime2, _ := node1.defaultSSWorker.SecretShareCommand(chosenValueBuffer2)
-	var b bytes.Buffer
 	secretSharedCommand1 := &SecretSharedCommand{
 		ClientCommand: &paxi.ClientCommand{
 			CommandType: paxi.TypeDBPutCommand,
 			RawCommand:  chosenValueBuffer1,
-			ReplyStream: bufio.NewWriter(&b),
+			ReplyStream: nil,
 		},
 		SSTime:        ssTime1,
 		Shares:        shares1,
@@ -213,7 +211,7 @@ func TestRecoveryMultipleSlots(t *testing.T) {
 		ClientCommand: &paxi.ClientCommand{
 			CommandType: paxi.TypeDBPutCommand,
 			RawCommand:  chosenValueBuffer2,
-			ReplyStream: bufio.NewWriter(&b),
+			ReplyStream: nil,
 		},
 		SSTime:        ssTime2,
 		Shares:        shares2,
@@ -262,4 +260,72 @@ func TestRecoveryMultipleSlots(t *testing.T) {
 	if string(committedValue) != "secret value" {
 		t.Errorf("wrong comitted value: %s", string(committedValue))
 	}
+}
+
+func TestShamirWorkerThroughput(t *testing.T)  {
+	numWorker := runtime.NumCPU()
+	wg := sync.WaitGroup{}
+	n := 1_000_000
+
+	workers := make([]SecretSharingWorker, numWorker)
+	for i := 0; i < numWorker; i++ {
+		workers[i] = NewWorker("shamir", 5, 2)
+	}
+
+	byte50 := make([]byte, 50)
+	rand.Read(byte50)
+
+	startTime := time.Now()
+	for i := 0; i < numWorker; i++ {
+		wg.Add(1)
+		go func(w *SecretSharingWorker, buff []byte) {
+			defer wg.Done()
+			for j := 0; j < n; j++ {
+				var result []SecretShare
+				result, _, _ = w.SecretShareCommand(byte50)
+				if result == nil {
+					t.Error("empty result")
+					break
+				}
+			}
+		}(&workers[i], byte50)
+	}
+
+	wg.Wait()
+	duration := time.Since(startTime)
+	t.Logf("throughput for 50b value: %.5f ops/s, numWorker=%d", float64(n*numWorker)/duration.Seconds(), numWorker)
+}
+
+func TestSSMSWorkerThroughput(t *testing.T)  {
+	numWorker := runtime.NumCPU()
+	wg := sync.WaitGroup{}
+	n := 1_000_000
+
+	workers := make([]SecretSharingWorker, numWorker)
+	for i := 0; i < numWorker; i++ {
+		workers[i] = NewWorker("ssms", 5, 2)
+	}
+
+	byte50 := make([]byte, 50)
+	rand.Read(byte50)
+
+	startTime := time.Now()
+	for i := 0; i < numWorker; i++ {
+		wg.Add(1)
+		go func(w *SecretSharingWorker, buff []byte) {
+			defer wg.Done()
+			for j := 0; j < n; j++ {
+				var result []SecretShare
+				result, _, _ = w.SecretShareCommand(byte50)
+				if result == nil {
+					t.Error("empty result")
+					break
+				}
+			}
+		}(&workers[i], byte50)
+	}
+
+	wg.Wait()
+	duration := time.Since(startTime)
+	t.Logf("throughput for 50b value: %.5f ops/s, numWorker=%d", float64(n*numWorker)/duration.Seconds(), numWorker)
 }
