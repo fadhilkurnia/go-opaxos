@@ -1,12 +1,20 @@
 package paxos
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"io"
 	"time"
 )
+
+var isEncrypted = flag.Bool("encrypt", false, "encrypt the value before proposed")
+const encryptionKey = "rahasiarahasiarahasiarahasia0123"
 
 // entry in log
 type entry struct {
@@ -215,12 +223,25 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	}
 	commands := make([]paxi.BytesCommand, batchSize)
 	commandsHandler := make([]*paxi.ClientCommand, batchSize)
+
+	// put the first to-be-proposed command
 	commands[0] = r.RawCommand
 	commandsHandler[0] = r
+	if *isEncrypted == true {
+		encryptedCommand, _ := encrypt(r.RawCommand, []byte(encryptionKey))
+		commands[0] = encryptedCommand
+	}
+
+	// put the remaining to-be-proposed commands
 	for i := 1; i < batchSize; i++ {
 		cmd := <-p.onOffPendingCommands
 		commands[i] = cmd.RawCommand
 		commandsHandler[i] = cmd
+
+		if *isEncrypted == true {
+			encryptedCommand, _ := encrypt(r.RawCommand, []byte(encryptionKey))
+			commands[i] = encryptedCommand
+		}
 	}
 	log.Debugf("batching %d commands", batchSize)
 
@@ -470,6 +491,20 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 		Data:   nil,
 	}
 
+	if *isEncrypted {
+		if p.ID() == paxi.NewID(1, 1) {
+			byteCmdArr := []byte(*byteCmd)
+			plainCmdBytes, err := decrypt(byteCmdArr, []byte(encryptionKey))
+			if err != nil {
+				log.Errorf("failed to decrypt command: %v", err)
+			}
+			plainCmdStruct := paxi.BytesCommand(plainCmdBytes)
+			byteCmd = &plainCmdStruct
+		} else {
+			return reply
+		}
+	}
+
 	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
 	switch cmdType {
 	case paxi.TypeDBGetCommand:
@@ -548,4 +583,40 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 	if err := storage.Flush(); err != nil {
 		log.Errorf("failed to flush data to underlying file writer: %v", err)
 	}
+}
+
+func encrypt(plaintext, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(block, iv[:])
+
+	var out bytes.Buffer
+	writer := &cipher.StreamWriter{S: stream, W: &out}
+	if _, err := io.Copy(writer, bytes.NewReader(plaintext)); err != nil {
+		return nil, err
+	}
+
+	return out.Bytes(), nil
+}
+
+func decrypt(ciphertext, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(block, iv[:])
+
+	var out bytes.Buffer
+	reader := &cipher.StreamReader{S: stream, R: bytes.NewReader(ciphertext)}
+	if _, err := io.Copy(&out, reader); err != nil {
+		return nil, err
+	}
+
+	return out.Bytes(), nil
 }

@@ -421,13 +421,6 @@ func (b *Benchmark) RunPipelineClient() {
 						log.Infof("finish sending, received %d from %d, incoming response: %d", respCounter, totalMsgSent, len(receiverCh))
 						clientFinishFlag = nil
 
-						//for debugging purpose: get the latest entry from the leader
-						//_, err := b.ClientCreator.CreateAsyncClient()
-						//if err != nil {
-						//	log.Error(err)
-						//}
-						//log.Infof("after probing the leader")
-
 						break
 
 					case resp := <-receiverCh:
