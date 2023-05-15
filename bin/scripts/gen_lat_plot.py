@@ -22,7 +22,7 @@ def generate_plot(output_loc):
     n_labels = len(x_labels)
     width = 0.2
 
-    colors = ['#1f77b4', 'royalblue', '#ff7f0e', '#2ca02c', '#d62728']
+    colors = ['#1f77b4', 'darkturquoise', '#ff7f0e', '#2ca02c', '#d62728']
 
     for i, e in enumerate(experiments):
         lats = []
@@ -59,7 +59,7 @@ def generate_plot(output_loc):
                 bottom=np.subtract(lats, encs),
                 hatch='///', color='white', alpha=.90, edgecolor='black', zorder=3, width=width, label=enc_label)
 
-    # plt.ylim(top=25, bottom=0)
+    # plt.ylim(top=18, bottom=10)
     plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
     plt.ylabel("Average Latency (ms)")
     plt.xlabel("Command Size")

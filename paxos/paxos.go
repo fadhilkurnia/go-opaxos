@@ -49,6 +49,13 @@ type Paxos struct {
 	Q1     func(*paxi.Quorum) bool
 	Q2     func(*paxi.Quorum) bool
 	buffer []byte // buffer used to persist ballot and accepted ballot
+
+	encryptionMetadata *encryptionMetadata
+}
+
+type encryptionMetadata struct {
+	block  cipher.Block
+	stream cipher.Stream
 }
 
 // NewPaxos creates new paxos instance
@@ -65,6 +72,19 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		buffer:               make([]byte, 18),
+	}
+
+	if *isEncrypted {
+		block, err := aes.NewCipher([]byte(encryptionKey))
+		if err != nil {
+			log.Errorf("failed to initialize encryption")
+		}
+		var iv [aes.BlockSize]byte
+		stream := cipher.NewOFB(block, iv[:])
+		p.encryptionMetadata = &encryptionMetadata{
+			block: block,
+			stream: stream,
+		}
 	}
 
 	for _, opt := range options {
@@ -236,12 +256,12 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 			// encrypt the command and capturing the duration
 			encryptTimes = make([]time.Duration, batchSize)
 			startTime := time.Now()
-			encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+			encryptedCommand, _ = p.encrypt(r.RawCommand)
 			encryptTime := time.Since(startTime)
 			encryptTimes[0] = encryptTime
 		} else {
 			// encrypt the command without capturing the duration
-			encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+			encryptedCommand, _ = p.encrypt(r.RawCommand)
 		}
 		commands[0] = encryptedCommand
 	}
@@ -256,11 +276,11 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 			var encryptedCommand []byte
 			if *paxi.GatherSecretShareTime {
 				startTime := time.Now()
-				encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+				encryptedCommand, _ = p.encrypt(r.RawCommand)
 				encryptTime := time.Since(startTime)
 				encryptTimes[0] = encryptTime
 			} else {
-				encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+				encryptedCommand, _ = p.encrypt(r.RawCommand)
 			}
 			commands[i] = encryptedCommand
 		}
@@ -517,7 +537,7 @@ func (p *Paxos) execCommands(batchIdx int, byteCmd *paxi.BytesCommand, slot int,
 	if *isEncrypted {
 		if p.ID() == paxi.NewID(1, 1) {
 			byteCmdArr := []byte(*byteCmd)
-			plainCmdBytes, err := decrypt(byteCmdArr, []byte(encryptionKey))
+			plainCmdBytes, err := p.decrypt(byteCmdArr)
 			if err != nil {
 				log.Errorf("failed to decrypt command: %v", err)
 			}
@@ -612,38 +632,20 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 	}
 }
 
-func encrypt(plaintext, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	var iv [aes.BlockSize]byte
-	stream := cipher.NewOFB(block, iv[:])
-
+func (p *Paxos) encrypt(plaintext []byte) ([]byte, error) {
 	var out bytes.Buffer
-	writer := &cipher.StreamWriter{S: stream, W: &out}
+	writer := &cipher.StreamWriter{S: p.encryptionMetadata.stream, W: &out}
 	if _, err := io.Copy(writer, bytes.NewReader(plaintext)); err != nil {
 		return nil, err
 	}
-
 	return out.Bytes(), nil
 }
 
-func decrypt(ciphertext, key []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	var iv [aes.BlockSize]byte
-	stream := cipher.NewOFB(block, iv[:])
-
+func (p *Paxos) decrypt(ciphertext []byte) ([]byte, error) {
 	var out bytes.Buffer
-	reader := &cipher.StreamReader{S: stream, R: bytes.NewReader(ciphertext)}
+	reader := &cipher.StreamReader{S: p.encryptionMetadata.stream, R: bytes.NewReader(ciphertext)}
 	if _, err := io.Copy(&out, reader); err != nil {
 		return nil, err
 	}
-
 	return out.Bytes(), nil
 }
