@@ -14,6 +14,7 @@ import (
 )
 
 var isEncrypted = flag.Bool("encrypt", false, "encrypt the value before proposed")
+
 const encryptionKey = "rahasiarahasiarahasiarahasia0123"
 
 // entry in log
@@ -23,6 +24,7 @@ type entry struct {
 	commandsHandler []*paxi.ClientCommand // corresponding handler for the commands, used to reply to client
 	commit          bool                  // commit is true if the value is final/decided
 	quorum          *paxi.Quorum          // quorum for phase 2
+	encryptTime     []time.Duration       // corresponding encryption time for each commands, if isEncrypt is true
 }
 
 // Paxos instance
@@ -223,12 +225,24 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	}
 	commands := make([]paxi.BytesCommand, batchSize)
 	commandsHandler := make([]*paxi.ClientCommand, batchSize)
+	var encryptTimes []time.Duration
 
 	// put the first to-be-proposed command
 	commands[0] = r.RawCommand
 	commandsHandler[0] = r
 	if *isEncrypted == true {
-		encryptedCommand, _ := encrypt(r.RawCommand, []byte(encryptionKey))
+		var encryptedCommand []byte
+		if *paxi.GatherSecretShareTime {
+			// encrypt the command and capturing the duration
+			encryptTimes = make([]time.Duration, batchSize)
+			startTime := time.Now()
+			encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+			encryptTime := time.Since(startTime)
+			encryptTimes[0] = encryptTime
+		} else {
+			// encrypt the command without capturing the duration
+			encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+		}
 		commands[0] = encryptedCommand
 	}
 
@@ -239,7 +253,15 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		commandsHandler[i] = cmd
 
 		if *isEncrypted == true {
-			encryptedCommand, _ := encrypt(r.RawCommand, []byte(encryptionKey))
+			var encryptedCommand []byte
+			if *paxi.GatherSecretShareTime {
+				startTime := time.Now()
+				encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+				encryptTime := time.Since(startTime)
+				encryptTimes[0] = encryptTime
+			} else {
+				encryptedCommand, _ = encrypt(r.RawCommand, []byte(encryptionKey))
+			}
 			commands[i] = encryptedCommand
 		}
 	}
@@ -252,6 +274,7 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		commands:        commands,
 		commandsHandler: commandsHandler,
 		quorum:          paxi.NewQuorum(),
+		encryptTime:     encryptTimes,
 	}
 
 	p.persistAcceptedValues(p.slot, p.ballot, commands)
@@ -466,7 +489,7 @@ func (p *Paxos) exec() {
 		log.Debugf("Replica %s execute [s=%d, cmds=%v]", p.ID(), p.execute, e.commands)
 
 		for i, cmd := range e.commands {
-			cmdReply := p.execCommands(&cmd, p.execute, e)
+			cmdReply := p.execCommands(i, &cmd, p.execute, e)
 			if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
 				err := e.commandsHandler[i].Reply(cmdReply)
 				if err != nil {
@@ -482,7 +505,7 @@ func (p *Paxos) exec() {
 	}
 }
 
-func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *paxi.CommandReply {
+func (p *Paxos) execCommands(batchIdx int, byteCmd *paxi.BytesCommand, slot int, e *entry) *paxi.CommandReply {
 	var cmd paxi.Command
 
 	reply := &paxi.CommandReply{
@@ -535,7 +558,11 @@ func (p *Paxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry) *pa
 	}
 
 	if *paxi.GatherSecretShareTime {
-		reply.Metadata[paxi.MetadataSecretSharingTime] = time.Duration(0) * time.Second
+		if *isEncrypted {
+			reply.Metadata[paxi.MetadataSecretSharingTime] = e.encryptTime[batchIdx]
+		} else {
+			reply.Metadata[paxi.MetadataSecretSharingTime] = time.Duration(0) * time.Second
+		}
 	}
 	if *paxi.ClientIsStateful {
 		reply.Metadata[paxi.MetadataAcceptedBallot] = e.ballot
