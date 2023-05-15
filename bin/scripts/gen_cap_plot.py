@@ -32,7 +32,7 @@ capacities = []
 for i, raw in enumerate(data):
   raw = raw.sort_values(by=['load(req/s)'])
   x = raw['load(req/s)']
-  y = raw['avg_lat(ms)']
+  y = raw['median_lat(ms)']
   z = raw['load_diff']
   ax1.plot(x, y, label=labels[i], color=colors[i], marker=markers[i])
   capacity = np.interp(load_diff_at_cap, z, x)
@@ -40,7 +40,7 @@ for i, raw in enumerate(data):
   capacities.append(capacity)
 
 ax1.legend()
-ax1.set_ylabel('Avg Latency (ms)')
+ax1.set_ylabel('Median Latency (ms)')
 ax1.get_yaxis().set_label_coords(-0.07,0.5)
 
 for i, raw in enumerate(data):
