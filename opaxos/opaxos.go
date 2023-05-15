@@ -22,8 +22,18 @@ type entry struct {
 	sharesBatch []SecretShare // a batch secret-shares of each command in commands, one share per command. Used in an untrusted acceptor.
 
 	// fields for trusted proposer
+	// TODO: coalesce the fields below into a single pointer to a struct, this reduces the memory from 8*5=40 bytes to 8 bytes
+	//metadata        *entryMetadata
 	quorum          *paxi.Quorum          // phase-2 quorum
 	commands        []paxi.BytesCommand   // a batch of clear commands, used in trusted node
+	commandsHandler []*paxi.ClientCommand // corresponding handler for each command in commands, used in trusted node
+	ssTime          []time.Duration       // time needed for secret-sharing process for each command in commands
+	commandShares   []*CommandShare       // collection of command from multiple acceptors, with the same slot number
+}
+
+type entryMetadata struct {
+	quorum          *paxi.Quorum          // phase-2 quorum
+	commands        *paxi.Quorum          // a batch of clear commands, used in trusted node. correspond to entry.sharesBatch
 	commandsHandler []*paxi.ClientCommand // corresponding handler for each command in commands, used in trusted node
 	ssTime          []time.Duration       // time needed for secret-sharing process for each command in commands
 	commandShares   []*CommandShare       // collection of command from multiple acceptors, with the same slot number
@@ -641,10 +651,10 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	op.log[op.slot] = &entry{
 		ballot:          op.ballot,
 		oriBallot:       op.ballot,
-		commands:        commands,
-		commandsHandler: commandsHandler,
 		sharesBatch:     sharesBatch,
 		commit:          false,
+		commands:        commands,
+		commandsHandler: commandsHandler,
 		quorum:          paxi.NewQuorum(),
 		ssTime:          ssEncTimes,
 	}
@@ -731,6 +741,8 @@ func (op *OPaxos) HandleProposeResponse(m P2b) {
 			op.log[m.Slot].commit = true
 			op.broadcastCommit(m.Slot, m.Ballot)
 
+			// TODO: maybe swap the order of broadcast and exec (?) so we have lower execution latency
+
 			// update execute slot idx
 			op.exec()
 		}
@@ -761,6 +773,7 @@ func (op *OPaxos) broadcastCommit(slot int, ballot paxi.Ballot) {
 			Slot:        slot,
 			SharesBatch: nil,
 		})
+		// TODO: maybe send the OriBallot only (?)
 		// For optimization, we don't resend the secret-share in the commit message in this prototype.
 		// For production usage, the proposer might need to send commit message with secret-share to
 		// acceptors whose P2b messages is not in the phase-2 quorum processed; or the acceptors

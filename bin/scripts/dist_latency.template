@@ -1,0 +1,39 @@
+{
+  "address": {
+    X_INTERNAL_ADDRESS
+  },
+  "public_address": {
+    X_PUBLIC_ADDRESS
+  },
+  "roles": {
+    X_ROLES
+  },
+  "protocol": {
+    X_PROTOCOL
+  },
+  "thrifty": false,
+  "policy": "majority",
+  "chan_buffer_size": 1024,
+  "buffer_size": 1024,
+  "multiversion": false,
+  "benchmark": {
+    "T": X_DURATION,
+    "N": X_NUM_REQUEST,
+    "K": 9,
+    "W": 1.0,
+    "Size": X_SIZE,
+    "Throttle": 0,
+    "Concurrency": 1,
+    "Distribution": "uniform",
+    "LinearizabilityCheck": false,
+    "Conflicts": 0,
+    "Min": 0,
+    "Mu": 500,
+    "Sigma": 50,
+    "Move": false,
+    "Speed": 10,
+    "Zipfian_s": 2,
+    "Zipfian_v": 1,
+    "Lambda": 0.01
+  }
+}

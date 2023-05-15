@@ -4,6 +4,12 @@ bin/*
 !bin/*.sh
 !bin/*.py
 !bin/*.json
+!bin/scripts/
+bin/scripts/*
+!bin/scripts/*.template
+!bin/scripts/*.sh
+!bin/scripts/*.py
+bin/scripts/variables.sh
 tla/*
 !tla/wpaxos.tla
 !tla/wpaxos.cfg
