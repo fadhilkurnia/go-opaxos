@@ -126,7 +126,7 @@ function prepare_config {
     upload_pids+=($!)
     for pid in "${upload_pids[@]}"; do
         wait $pid
-        echo "      upload process $pid exit with status $?"
+        # echo "      upload process $pid exit with status $?"
     done
 
     # move the config to the intended location (including client machine)

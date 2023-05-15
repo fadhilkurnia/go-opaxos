@@ -55,7 +55,6 @@ type Paxos struct {
 
 type encryptionMetadata struct {
 	block  cipher.Block
-	stream cipher.Stream
 }
 
 // NewPaxos creates new paxos instance
@@ -79,11 +78,8 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		if err != nil {
 			log.Errorf("failed to initialize encryption")
 		}
-		var iv [aes.BlockSize]byte
-		stream := cipher.NewOFB(block, iv[:])
 		p.encryptionMetadata = &encryptionMetadata{
 			block: block,
-			stream: stream,
 		}
 	}
 
@@ -634,7 +630,9 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 
 func (p *Paxos) encrypt(plaintext []byte) ([]byte, error) {
 	var out bytes.Buffer
-	writer := &cipher.StreamWriter{S: p.encryptionMetadata.stream, W: &out}
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(p.encryptionMetadata.block, iv[:])
+	writer := &cipher.StreamWriter{S: stream, W: &out}
 	if _, err := io.Copy(writer, bytes.NewReader(plaintext)); err != nil {
 		return nil, err
 	}
@@ -643,7 +641,9 @@ func (p *Paxos) encrypt(plaintext []byte) ([]byte, error) {
 
 func (p *Paxos) decrypt(ciphertext []byte) ([]byte, error) {
 	var out bytes.Buffer
-	reader := &cipher.StreamReader{S: p.encryptionMetadata.stream, R: bytes.NewReader(ciphertext)}
+	var iv [aes.BlockSize]byte
+	stream := cipher.NewOFB(p.encryptionMetadata.block, iv[:])
+	reader := &cipher.StreamReader{S: stream, R: bytes.NewReader(ciphertext)}
 	if _, err := io.Copy(&out, reader); err != nil {
 		return nil, err
 	}
