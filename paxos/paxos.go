@@ -23,6 +23,7 @@ type entry struct {
 	commit          bool                  // commit is true if the value is final/decided
 	quorum          *paxi.Quorum          // quorum for phase 2
 	encryptTime     []time.Duration       // corresponding encryption time for each commands, if isEncrypt is true
+	cipherCommands  []paxi.BytesCommand   // the encrypted commands, if isEncrypted is true
 }
 
 // Paxos instance
@@ -52,7 +53,7 @@ type Paxos struct {
 }
 
 type encryptionMetadata struct {
-	block  cipher.Block
+	block cipher.Block
 }
 
 // NewPaxos creates new paxos instance
@@ -244,7 +245,9 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	// put the first to-be-proposed command
 	commands[0] = r.RawCommand
 	commandsHandler[0] = r
+	var cipherCommands []paxi.BytesCommand
 	if *isEncrypted == true {
+		cipherCommands = make([]paxi.BytesCommand, batchSize)
 		var encryptedCommand []byte
 		if *paxi.GatherSecretShareTime {
 			// encrypt the command and capturing the duration
@@ -257,7 +260,7 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 			// encrypt the command without capturing the duration
 			encryptedCommand, _ = p.encrypt(r.RawCommand)
 		}
-		commands[0] = encryptedCommand
+		cipherCommands[0] = encryptedCommand
 	}
 
 	// put the remaining to-be-proposed commands
@@ -276,7 +279,7 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 			} else {
 				encryptedCommand, _ = p.encrypt(r.RawCommand)
 			}
-			commands[i] = encryptedCommand
+			cipherCommands[i] = encryptedCommand
 		}
 	}
 	log.Debugf("batching %d commands", batchSize)
@@ -289,6 +292,7 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		commandsHandler: commandsHandler,
 		quorum:          paxi.NewQuorum(),
 		encryptTime:     encryptTimes,
+		cipherCommands:  cipherCommands,
 	}
 
 	p.persistAcceptedValues(p.slot, p.ballot, commands)
@@ -297,6 +301,10 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		Ballot:   p.ballot,
 		Slot:     p.slot,
 		Commands: commands,
+	}
+
+	if *isEncrypted {
+		m.Commands = cipherCommands
 	}
 
 	if paxi.GetConfig().Thrifty {
@@ -338,6 +346,18 @@ func (p *Paxos) update(scb map[int]CommandsBallot) {
 				e.ballot = cb.Ballot
 				e.commands = cb.Commands
 				e.commandsHandler = nil
+				if *isEncrypted {
+					plainCmds := make([]paxi.BytesCommand, len(cb.Commands))
+					for i, c := range cb.Commands {
+						plain, err := p.decrypt(c)
+						if err != nil {
+							log.Errorf("failed to decrypt command: %v", err)
+						}
+						plainCmds[i] = plain
+					}
+					e.commands = plainCmds
+					e.cipherCommands = cb.Commands
+				}
 			}
 		} else {
 			p.log[s] = &entry{
@@ -345,6 +365,18 @@ func (p *Paxos) update(scb map[int]CommandsBallot) {
 				commands:        cb.Commands,
 				commandsHandler: nil,
 				commit:          false,
+			}
+			if *isEncrypted {
+				plainCmds := make([]paxi.BytesCommand, len(cb.Commands))
+				for i, c := range cb.Commands {
+					plain, err := p.decrypt(c)
+					if err != nil {
+						log.Errorf("failed to decrypt command: %v", err)
+					}
+					plainCmds[i] = plain
+				}
+				p.log[s].commands = plainCmds
+				p.log[s].cipherCommands = cb.Commands
 			}
 		}
 	}
@@ -381,11 +413,15 @@ func (p *Paxos) HandleP1b(m P1b) {
 				p.log[i].ballot = p.ballot
 				p.log[i].quorum = paxi.NewQuorum()
 				p.log[i].quorum.ACK(p.ID())
-				p.Broadcast(P2a{
+				p2amsg := P2a{
 					Ballot:   p.ballot,
 					Slot:     i,
 					Commands: p.log[i].commands,
-				})
+				}
+				if *isEncrypted {
+					p2amsg.Commands = p.log[i].cipherCommands
+				}
+				p.Broadcast(p2amsg)
 			}
 
 			// propose pending commands
@@ -414,6 +450,9 @@ func (p *Paxos) HandleP2a(m P2a) {
 				e.commands = m.Commands
 				e.ballot = m.Ballot
 				e.commandsHandler = nil
+				if *isEncrypted {
+					e.cipherCommands = m.Commands
+				}
 			}
 		} else {
 			p.log[m.Slot] = &entry{
@@ -421,6 +460,9 @@ func (p *Paxos) HandleP2a(m P2a) {
 				commands:        m.Commands,
 				commandsHandler: nil,
 				commit:          false,
+			}
+			if *isEncrypted {
+				p.log[m.Slot].cipherCommands = m.Commands
 			}
 		}
 	}
@@ -489,6 +531,9 @@ func (p *Paxos) HandleP3(m P3) {
 			commandsHandler: nil,
 			commit:          true,
 		}
+		if *isEncrypted && m.Commands != nil {
+			p.log[m.Slot].cipherCommands = m.Commands
+		}
 	}
 
 	p.exec()
@@ -502,14 +547,18 @@ func (p *Paxos) exec() {
 		}
 		log.Debugf("Replica %s execute [s=%d, cmds=%v]", p.ID(), p.execute, e.commands)
 
-		for i, cmd := range e.commands {
-			cmdReply := p.execCommands(i, &cmd, p.execute, e)
-			if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
-				err := e.commandsHandler[i].Reply(cmdReply)
-				if err != nil {
-					log.Errorf("failed to send CommandReply: %v", err)
+		// only trusted leader can execute the command in encrypted-paxos
+		// otherwise, if isEncrypted is false, everyone can execute
+		if (*isEncrypted && p.IsLeader()) || (!*isEncrypted){
+			for i, cmd := range e.commands {
+				cmdReply := p.execCommands(i, &cmd, p.execute, e)
+				if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
+					err := e.commandsHandler[i].Reply(cmdReply)
+					if err != nil {
+						log.Errorf("failed to send CommandReply: %v", err)
+					}
+					e.commandsHandler[i] = nil
 				}
-				e.commandsHandler[i] = nil
 			}
 		}
 
@@ -528,18 +577,8 @@ func (p *Paxos) execCommands(batchIdx int, byteCmd *paxi.BytesCommand, slot int,
 		Data:   nil,
 	}
 
-	if *isEncrypted {
-		if p.ID() == paxi.NewID(1, 1) {
-			byteCmdArr := []byte(*byteCmd)
-			plainCmdBytes, err := p.decrypt(byteCmdArr)
-			if err != nil {
-				log.Errorf("failed to decrypt command: %v", err)
-			}
-			plainCmdStruct := paxi.BytesCommand(plainCmdBytes)
-			byteCmd = &plainCmdStruct
-		} else {
-			return reply
-		}
+	if *isEncrypted && !p.IsLeader(){
+		return reply
 	}
 
 	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)

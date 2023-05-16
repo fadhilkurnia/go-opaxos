@@ -12,8 +12,8 @@ experiments = [ ["paxos", "cloudlab_lat_lowload_paxos.json", "Multi-Paxos", ""],
                 ["paxos", "cloudlab_lat_lowload_paxos_encrypt.json", "Multi-Paxos (Encrypted)", "encrypt"],
                 ["opaxos", "cloudlab_lat_lowload_opaxos.json", "Multi-OPaxos (Shamir)", "shamir"],
                 ["opaxos", "cloudlab_lat_lowload_opaxos_ssms.json", "Multi-OPaxos (SSMS)", "ssms"]]
-cmd_sizes = [ 50, 100, 1000, 10000, 25000, 50000, 100000 ]
-cmd_size_labels = [ '50B', '100B', '1KB', '10KB', '25KB', '50KB', '100KB']
+cmd_sizes = [ 50, 100, 1000, 10000, 25000, 50000 ]
+cmd_size_labels = [ '50B', '100B', '1KB', '10KB', '25KB', '50KB']
 
 def generate_plot(output_loc):
     plt.rcParams["figure.figsize"] = (5,3)
@@ -59,7 +59,7 @@ def generate_plot(output_loc):
                 bottom=np.subtract(lats, encs),
                 hatch='///', color='white', alpha=.90, edgecolor='black', zorder=3, width=width, label=enc_label)
 
-    # plt.ylim(top=18, bottom=10)
+    plt.ylim(top=14, bottom=10)
     plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
     plt.ylabel("Average Latency (ms)")
     plt.xlabel("Command Size")
