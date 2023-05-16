@@ -1,7 +1,6 @@
 package paxos
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
@@ -9,7 +8,6 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"io"
 	"time"
 )
 
@@ -629,23 +627,17 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 }
 
 func (p *Paxos) encrypt(plaintext []byte) ([]byte, error) {
-	var out bytes.Buffer
 	var iv [aes.BlockSize]byte
-	stream := cipher.NewOFB(p.encryptionMetadata.block, iv[:])
-	writer := &cipher.StreamWriter{S: stream, W: &out}
-	if _, err := io.Copy(writer, bytes.NewReader(plaintext)); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	stream := cipher.NewCTR(p.encryptionMetadata.block, iv[:])
+	ciphertext := make([]byte, len(plaintext))
+	stream.XORKeyStream(ciphertext, plaintext)
+	return ciphertext, nil
 }
 
 func (p *Paxos) decrypt(ciphertext []byte) ([]byte, error) {
-	var out bytes.Buffer
 	var iv [aes.BlockSize]byte
-	stream := cipher.NewOFB(p.encryptionMetadata.block, iv[:])
-	reader := &cipher.StreamReader{S: stream, R: bytes.NewReader(ciphertext)}
-	if _, err := io.Copy(&out, reader); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	stream := cipher.NewCTR(p.encryptionMetadata.block, iv[:])
+	plaintext := make([]byte, len(ciphertext))
+	stream.XORKeyStream(plaintext, ciphertext)
+	return plaintext, nil
 }
