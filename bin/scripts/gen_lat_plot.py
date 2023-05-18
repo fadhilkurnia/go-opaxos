@@ -2,6 +2,7 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 parser = argparse.ArgumentParser(description='experiments script')
 parser.add_argument('-l', "--location", type=str, required=True)
@@ -12,8 +13,8 @@ experiments = [ ["paxos", "cloudlab_lat_lowload_paxos.json", "Multi-Paxos", ""],
                 ["paxos", "cloudlab_lat_lowload_paxos_encrypt.json", "Multi-Paxos (Encrypted)", "encrypt"],
                 ["opaxos", "cloudlab_lat_lowload_opaxos.json", "Multi-OPaxos (Shamir)", "shamir"],
                 ["opaxos", "cloudlab_lat_lowload_opaxos_ssms.json", "Multi-OPaxos (SSMS)", "ssms"]]
-cmd_sizes = [ 50, 100, 1000, 10000, 25000, 50000 ]
-cmd_size_labels = [ '50B', '100B', '1KB', '10KB', '25KB', '50KB']
+cmd_sizes = [ 50, 100, 1000, 10000, 25000, 50000, 100000 ]
+cmd_size_labels = [ '50B', '100B', '1KB', '10KB', '25KB', '50KB', '100KB']
 
 def generate_plot(output_loc):
     plt.rcParams["figure.figsize"] = (5,3)
@@ -29,17 +30,25 @@ def generate_plot(output_loc):
         encs = []
         stderrs = []
         stddevs = []
+        enc_stddevs = []
         config = "{}_{}.json".format(e[0], e[3])
         label = e[2]
 
         for sz in cmd_sizes:
-            lat = np.loadtxt(output_loc + "/latency_" + config.replace(".json", "_{}.dat".format(sz)))
-            enc = np.loadtxt(output_loc + "/encode_" + config.replace(".json", "_{}.dat".format(sz)))
+            lat_filename = output_loc + "/latency_" + config.replace(".json", "_{}.dat".format(sz))
+            enc_filename = output_loc + "/encode_" + config.replace(".json", "_{}.dat".format(sz))
+            lat = [0]
+            enc = [0]
+            if os.path.exists(lat_filename):
+                lat = np.loadtxt(lat_filename)
+            if os.path.exists(enc_filename):
+                enc = np.loadtxt(enc_filename)
 
             lats.append(np.mean(lat))
             encs.append(np.mean(enc))
             stddevs.append(np.std(lat))
             stderrs.append(np.std(lat)/np.sqrt(np.size(lats)))
+            enc_stddevs.append(np.std(enc))
 
         x_pos = np.arange(len(x_labels))
 
@@ -47,19 +56,27 @@ def generate_plot(output_loc):
                 lats,
                 yerr=[
                       np.zeros(n_labels),
-                      stderrs,
+                      stddevs,
                 ],
-                capsize=5,
+                capsize=3,
                 edgecolor='black', color=colors[i], zorder=3, width=width, label=label)
         enc_label = None
         if i == len(experiments)-1:
-            enc_label = 'Secret-sharing'
+            enc_label = 'Secret-sharing/Encryption'
         plt.bar(x_pos + (i*width) - (width*len(experiments)/2) + width/2,
                 encs,
                 bottom=np.subtract(lats, encs),
                 hatch='///', color='white', alpha=.90, edgecolor='black', zorder=3, width=width, label=enc_label)
+        plt.errorbar(x_pos + (i*width) - (width*len(experiments)/2) + width/2,
+                     np.subtract(lats, encs),
+                     yerr=enc_stddevs,
+                     color='black',
+                     fmt='.',
+                     markersize=0.01,
+                     elinewidth=1,
+                     zorder=4)
 
-    plt.ylim(top=14, bottom=10)
+    # plt.ylim(top=16.5, bottom=10)
     plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
     plt.ylabel("Average Latency (ms)")
     plt.xlabel("Command Size")

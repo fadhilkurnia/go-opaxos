@@ -549,7 +549,8 @@ func (p *Paxos) exec() {
 
 		// only trusted leader can execute the command in encrypted-paxos
 		// otherwise, if isEncrypted is false, everyone can execute
-		if (*isEncrypted && p.IsLeader()) || (!*isEncrypted){
+		// primary backup approach: only leader that execute
+		if (*isEncrypted && p.IsLeader()) || (!*isEncrypted && p.IsLeader()){
 			for i, cmd := range e.commands {
 				cmdReply := p.execCommands(i, &cmd, p.execute, e)
 				if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
