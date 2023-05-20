@@ -100,9 +100,9 @@ function prepare_config {
         opaxos)
             case $3 in
                 shamir)
-                    temp="\"name\": \"opaxos\", \"secret_sharing\": \"shamir\", \"threshold\": 2, \"quorum_1\": 5, \"quorum_2\": 3, \"quorum_fast\": 4";;
+                    temp="\"name\": \"opaxos\", \"secret_sharing\": \"shamir\", \"threshold\": 2, \"quorum_1\": 4, \"quorum_2\": 3, \"quorum_fast\": 4";;
                 ssms)
-                    temp="\"name\": \"opaxos\", \"secret_sharing\": \"ssms\", \"threshold\": 2, \"quorum_1\": 5, \"quorum_2\": 3, \"quorum_fast\": 4";;
+                    temp="\"name\": \"opaxos\", \"secret_sharing\": \"ssms\", \"threshold\": 2, \"quorum_1\": 4, \"quorum_2\": 3, \"quorum_fast\": 4";;
             esac
             ;;
     esac

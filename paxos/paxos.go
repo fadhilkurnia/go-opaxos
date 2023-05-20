@@ -15,6 +15,8 @@ var isEncrypted = flag.Bool("encrypt", false, "encrypt the value before proposed
 
 const encryptionKey = "rahasiarahasiarahasiarahasia0123"
 
+var encryptionKeyBytes = []byte(encryptionKey)
+
 // entry in log
 type entry struct {
 	ballot          paxi.Ballot           // accepted ballot for the value
@@ -48,12 +50,6 @@ type Paxos struct {
 	Q1     func(*paxi.Quorum) bool
 	Q2     func(*paxi.Quorum) bool
 	buffer []byte // buffer used to persist ballot and accepted ballot
-
-	encryptionMetadata *encryptionMetadata
-}
-
-type encryptionMetadata struct {
-	block cipher.Block
 }
 
 // NewPaxos creates new paxos instance
@@ -70,16 +66,6 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 		Q1:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		Q2:                   func(q *paxi.Quorum) bool { return q.Majority() },
 		buffer:               make([]byte, 18),
-	}
-
-	if *isEncrypted {
-		block, err := aes.NewCipher([]byte(encryptionKey))
-		if err != nil {
-			log.Errorf("failed to initialize encryption")
-		}
-		p.encryptionMetadata = &encryptionMetadata{
-			block: block,
-		}
 	}
 
 	for _, opt := range options {
@@ -547,19 +533,14 @@ func (p *Paxos) exec() {
 		}
 		log.Debugf("Replica %s execute [s=%d, cmds=%v]", p.ID(), p.execute, e.commands)
 
-		// only trusted leader can execute the command in encrypted-paxos
-		// otherwise, if isEncrypted is false, everyone can execute
-		// primary backup approach: only leader that execute
-		if (*isEncrypted && p.IsLeader()) || (!*isEncrypted && p.IsLeader()){
-			for i, cmd := range e.commands {
-				cmdReply := p.execCommands(i, &cmd, p.execute, e)
-				if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
-					err := e.commandsHandler[i].Reply(cmdReply)
-					if err != nil {
-						log.Errorf("failed to send CommandReply: %v", err)
-					}
-					e.commandsHandler[i] = nil
+		for i, cmd := range e.commands {
+			cmdReply := p.execCommands(i, &cmd, p.execute, e)
+			if e.commandsHandler != nil && len(e.commandsHandler) > i && e.commandsHandler[i] != nil {
+				err := e.commandsHandler[i].Reply(cmdReply)
+				if err != nil {
+					log.Errorf("failed to send CommandReply: %v", err)
 				}
+				e.commandsHandler[i] = nil
 			}
 		}
 
@@ -578,7 +559,7 @@ func (p *Paxos) execCommands(batchIdx int, byteCmd *paxi.BytesCommand, slot int,
 		Data:   nil,
 	}
 
-	if *isEncrypted && !p.IsLeader(){
+	if !p.IsLeader() {
 		return reply
 	}
 
@@ -667,16 +648,24 @@ func (p *Paxos) persistAcceptedValues(slot int, b paxi.Ballot, values []paxi.Byt
 }
 
 func (p *Paxos) encrypt(plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(encryptionKeyBytes)
+	if err != nil {
+		return nil, err
+	}
 	var iv [aes.BlockSize]byte
-	stream := cipher.NewCTR(p.encryptionMetadata.block, iv[:])
+	stream := cipher.NewCTR(block, iv[:])
 	ciphertext := make([]byte, len(plaintext))
 	stream.XORKeyStream(ciphertext, plaintext)
 	return ciphertext, nil
 }
 
 func (p *Paxos) decrypt(ciphertext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(encryptionKeyBytes)
+	if err != nil {
+		return nil, err
+	}
 	var iv [aes.BlockSize]byte
-	stream := cipher.NewCTR(p.encryptionMetadata.block, iv[:])
+	stream := cipher.NewCTR(block, iv[:])
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 	return plaintext, nil

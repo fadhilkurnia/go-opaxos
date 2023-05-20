@@ -15,7 +15,7 @@
     },
     "roles": {
         "1.1": "proposer,acceptor,learner",
-        "1.2": "acceptor,learner",
+        "1.2": "proposer,acceptor,learner",
         "1.3": "acceptor,learner",
         "1.4": "acceptor,learner",
         "1.5": "acceptor,learner"

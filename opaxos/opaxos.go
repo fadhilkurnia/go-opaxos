@@ -820,6 +820,10 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, c
 		Data:   nil,
 	}
 
+	if !op.isLeader {
+		return reply
+	}
+
 	cmdType := paxi.GetDBCommandTypeFromBuffer(*byteCmd)
 	switch cmdType {
 	case paxi.TypeDBGetCommand:
