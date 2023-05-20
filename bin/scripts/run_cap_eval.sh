@@ -3,13 +3,14 @@
 # the final results are .csv file containing the avg. latencies and resp. rate with
 # increasing load
 
-source variables.sh
+source variables_cap.sh
 crt_time=$(date +"%Y%m%d%H%M%S")
 
 EXPERIMENTS=(
+    "paxos encrypt"
+    "paxos"
     "opaxos shamir"
     "opaxos ssms"
-    "paxos"
 )
 LOADS=()
 NUM_CLIENTS=10
@@ -69,7 +70,7 @@ function prepare_result_dir {
 
 # prepare the config file
 # $1 is the protocol name (paxos or opaxos)
-# $2 is the secret-sharing algorithm (for opaxos)
+# $2 is the secret-sharing algorithm (for opaxos), or encrypt (for paxos)
 # $3 the intended load target with all the clients
 function prepare_config {
     cfg_loc="results/${crt_time}_capacity/cfg_$1_$2_$3.json"
@@ -154,7 +155,7 @@ function prepare_config {
     upload_pids+=($!)
     for pid in "${upload_pids[@]}"; do
         wait $pid
-        echo "      upload process $pid exit with status $?"
+        # echo "      upload process $pid exit with status $?"
     done
 
     # move the config to the intended location (including client machine)
@@ -169,6 +170,7 @@ function prepare_config {
 
 # run paxos/opaxos instances in all the machines
 # $1 is the protocol name (paxos or opaxos)
+# $2 is encryp, ssms, or shamir
 function run_instances {
     i=1
     PIDS=()
@@ -180,12 +182,29 @@ function run_instances {
         HOST="${MACHINES[$nid]}"
         ID=1.${i}
         
-        ssh -o ServerAliveInterval=60 -i $SSH_KEY_LOC $SSH_USERNAME@$HOST \
-            "cd /usr/local/griya/bin; \
-            sudo cset shield -e env -- GOGC=100 ./server -id ${ID} -algorithm ${ALG} \
-            -client_type ${CLIENT_TYPE} -client_action pipeline -log_level error -log_stdout \
-            -config config.json" \
-            &
+        # this command is here for backup, if we need cset again
+        # ssh -o ServerAliveInterval=60 -i $SSH_KEY_LOC $SSH_USERNAME@$HOST \
+        #     "cd /usr/local/griya/bin; \
+        #     sudo cset shield -e env -- GOGC=100 ./server -id ${ID} -algorithm ${ALG} \
+        #     -client_type ${CLIENT_TYPE} -client_action pipeline -log_level error -log_stdout \
+        #     -config config.json" \
+        #     &
+
+        if [ ! -z "$2" ] && [ "$2" == "encrypt" ]; then
+            ssh -i $SSH_KEY_LOC $SSH_USERNAME@$HOST \
+                "cd /usr/local/griya/bin; \
+                sudo ./server -id ${ID} -algorithm ${ALG} \
+                -client_type ${CLIENT_TYPE} -client_action pipeline -log_level error -log_stdout \
+                -encrypt -config config.json" \
+                &
+        else
+            ssh -o ServerAliveInterval=60 -i $SSH_KEY_LOC $SSH_USERNAME@$HOST \
+                "cd /usr/local/griya/bin; \
+                sudo ./server -id ${ID} -algorithm ${ALG} \
+                -client_type ${CLIENT_TYPE} -client_action pipeline -log_level error -log_stdout \
+                -config config.json" \
+                &
+        fi
         
         # store the pid of the ssh background process so we can kill it later
         PIDS+=($!)
@@ -300,7 +319,7 @@ while [ $NUM_REPETITION -gt 0 ]; do
         # running all the instances
         kill_prev_instances
         prepare_config "$protocol" "$ss_alg" 0
-        run_instances "$protocol"
+        run_instances $E
         
         # vary load sent by the clients
         for LD in "${LOADS[@]}"; do
@@ -326,38 +345,38 @@ while [ $NUM_REPETITION -gt 0 ]; do
 
         # do binary search to find load near the capacity: when the response rate becomes less than 99%
         # (in other words, the load different grows more than 1%)
-        right_load=$(echo "$max_load")
-        left_load=$(echo "$right_load-$load_inc" | bc)
-        mid_load=$(echo "($right_load+$left_load)/2" | bc)
-        delta=0.5
-        echo "find the estimated capacity in load range: $left_load - $right_load req/s"
-        while true; do
-            echo "=> Run a measurement (protocol: $E, load: $mid_load req/s)"
-            prepare_config "$protocol" "$ss_alg" $mid_load
-            sleep 3
-            run_clients "$protocol"
-            gather_results "$protocol" "$ss_alg" $mid_load
-            cleanup
+        # right_load=$(echo "$max_load")
+        # left_load=$(echo "$right_load-$load_inc" | bc)
+        # mid_load=$(echo "($right_load+$left_load)/2" | bc)
+        # delta=0.5
+        # echo "find the estimated capacity in load range: $left_load - $right_load req/s"
+        # while true; do
+        #     echo "=> Run a measurement (protocol: $E, load: $mid_load req/s)"
+        #     prepare_config "$protocol" "$ss_alg" $mid_load
+        #     sleep 3
+        #     run_clients "$protocol"
+        #     gather_results "$protocol" "$ss_alg" $mid_load
+        #     cleanup
 
-            echo ""
+        #     echo ""
 
-            left_cond=$(echo "$load_diff_percent > 1-$delta" | bc -l)
-            right_cond=$(echo "$load_diff_percent < 1+$delta" | bc -l)
-            left_right_load_diff=$(echo "$right_load-$left_load" | bc)
-            echo "$left_load $right_load $left_cond $right_cond"
+        #     left_cond=$(echo "$load_diff_percent > 1-$delta" | bc -l)
+        #     right_cond=$(echo "$load_diff_percent < 1+$delta" | bc -l)
+        #     left_right_load_diff=$(echo "$right_load-$left_load" | bc)
+        #     echo "$left_load $right_load $left_cond $right_cond"
 
-            if [ $left_right_load_diff -le 20 ] || ([ $left_cond -eq 1 ] && [ $right_cond -eq 1 ]) ; then
-                echo "stop the search"
-                break
-            elif [ $(echo "$load_diff_percent > 1+$delta" | bc -l) -eq 1 ]; then
-                right_load=$(echo "$mid_load")
-                mid_load=$(echo "($right_load+$left_load)/2" | bc)
-            else
-                left_load=$(echo "$mid_load")
-                mid_load=$(echo "($right_load+$left_load)/2" | bc)
-            fi
+        #     if [ $left_right_load_diff -le 20 ] || ([ $left_cond -eq 1 ] && [ $right_cond -eq 1 ]) ; then
+        #         echo "stop the search"
+        #         break
+        #     elif [ $(echo "$load_diff_percent > 1+$delta" | bc -l) -eq 1 ]; then
+        #         right_load=$(echo "$mid_load")
+        #         mid_load=$(echo "($right_load+$left_load)/2" | bc)
+        #     else
+        #         left_load=$(echo "$mid_load")
+        #         mid_load=$(echo "($right_load+$left_load)/2" | bc)
+        #     fi
 
-        done
+        # done
 
         kill_instances
 

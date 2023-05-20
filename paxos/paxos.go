@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
+	"runtime"
 	"time"
 )
 
@@ -50,6 +51,18 @@ type Paxos struct {
 	Q1     func(*paxi.Quorum) bool
 	Q2     func(*paxi.Quorum) bool
 	buffer []byte // buffer used to persist ballot and accepted ballot
+
+	// data for encrypted paxos
+	numEncryptWorkers           int
+	encryptJobs                 chan *paxi.ClientCommand
+	pendingEncryptedCommands    chan *encryptedCommandData
+	onOffPendingEncryptCommands chan *encryptedCommandData // non nil pointer to pendingEncryptedCommands after get response for phase 1
+}
+
+type encryptedCommandData struct {
+	clientCommand *paxi.ClientCommand
+	cipherCommand []byte
+	encTime       time.Duration
 }
 
 // NewPaxos creates new paxos instance
@@ -70,6 +83,32 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 
 	for _, opt := range options {
 		opt(p)
+	}
+
+	if *isEncrypted {
+		p.numEncryptWorkers = runtime.NumCPU()
+		p.encryptJobs = make(chan *paxi.ClientCommand, paxi.GetConfig().ChanBufferSize)
+		p.pendingEncryptedCommands = make(chan *encryptedCommandData, paxi.GetConfig().ChanBufferSize)
+		p.onOffPendingEncryptCommands = nil
+
+		// run encryption workers
+		for i := 0; i < p.numEncryptWorkers; i++ {
+			go func() {
+				for cmd := range p.encryptJobs {
+					startTime := time.Now()
+					encryptedCommand, err := p.encrypt(cmd.RawCommand)
+					encProcTime := time.Since(startTime)
+					if err != nil {
+						log.Errorf("failed to encrypt value: %v", err)
+					}
+					p.pendingEncryptedCommands <- &encryptedCommandData{
+						clientCommand: cmd,
+						cipherCommand: encryptedCommand,
+						encTime:       encProcTime,
+					}
+				}
+			}()
+		}
 	}
 
 	return p
@@ -116,6 +155,11 @@ func (p *Paxos) run() {
 				numPMsg--
 			}
 			break
+
+		// similar as in onOffPendingCommands, but for the encrypted mode
+		case pCmd := <-p.onOffPendingEncryptCommands:
+			p.P2aEncrypt(pCmd)
+			break
 		}
 	}
 
@@ -126,6 +170,10 @@ func (p *Paxos) run() {
 // channel, if the channel is full, goroutine is used to enqueue the commands. Thus
 // this method *always* return, even if the channel is full.
 func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientCommand) {
+	if *isEncrypted {
+		p.nonBlockingEnqueueEncJobsPendingCommand(cmd)
+		return
+	}
 	isChannelFull := false
 	if len(p.pendingCommands) == cap(p.pendingCommands) {
 		log.Warningf("Channel for pending commands is full (len=%d)", len(p.pendingCommands))
@@ -137,6 +185,22 @@ func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientCommand) {
 	} else {
 		go func() {
 			p.pendingCommands <- cmd
+		}()
+	}
+}
+
+func (p *Paxos) nonBlockingEnqueueEncJobsPendingCommand(cmd *paxi.ClientCommand) {
+	isChannelFull := false
+	if len(p.pendingCommands) == cap(p.pendingCommands) {
+		log.Warningf("Channel for pending commands is full (len=%d)", len(p.pendingCommands))
+		isChannelFull = true
+	}
+
+	if !isChannelFull {
+		p.encryptJobs <- cmd
+	} else {
+		go func() {
+			p.encryptJobs <- cmd
 		}()
 	}
 }
@@ -300,6 +364,65 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	}
 }
 
+// P2aEncrypt is similar as in P2a, but for encrypted mode
+func (p *Paxos) P2aEncrypt(r *encryptedCommandData) {
+	// prepare batch of commands to be proposed
+	batchSize := len(p.onOffPendingEncryptCommands) + 1
+	if batchSize > paxi.MaxBatchSize {
+		batchSize = paxi.MaxBatchSize
+	}
+	commands := make([]paxi.BytesCommand, batchSize)
+	commandsHandler := make([]*paxi.ClientCommand, batchSize)
+	var encryptTimes []time.Duration
+
+	// put the first to-be-proposed command
+	commands[0] = r.clientCommand.RawCommand
+	commandsHandler[0] = r.clientCommand
+	cipherCommands := make([]paxi.BytesCommand, batchSize)
+	if *paxi.GatherSecretShareTime {
+		encryptTimes[0] = r.encTime
+	}
+	cipherCommands[0] = r.cipherCommand
+
+	// put the remaining to-be-proposed commands
+	for i := 1; i < batchSize; i++ {
+		cmd := <-p.onOffPendingEncryptCommands
+		commands[i] = cmd.clientCommand.RawCommand
+		commandsHandler[i] = cmd.clientCommand
+
+		if *paxi.GatherSecretShareTime {
+			encryptTimes[0] = cmd.encTime
+		}
+		cipherCommands[i] = cmd.cipherCommand
+	}
+	log.Debugf("batching %d commands", batchSize)
+
+	// prepare the entry
+	p.slot++
+	p.log[p.slot] = &entry{
+		ballot:          p.ballot,
+		commands:        commands,
+		commandsHandler: commandsHandler,
+		quorum:          paxi.NewQuorum(),
+		encryptTime:     encryptTimes,
+		cipherCommands:  cipherCommands,
+	}
+
+	p.persistAcceptedValues(p.slot, p.ballot, commands)
+	p.log[p.slot].quorum.ACK(p.ID())
+	m := P2a{
+		Ballot:   p.ballot,
+		Slot:     p.slot,
+		Commands: cipherCommands,
+	}
+
+	if paxi.GetConfig().Thrifty {
+		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
+	} else {
+		p.Broadcast(m)
+	}
+}
+
 // HandleP1a handles P1a message
 func (p *Paxos) HandleP1a(m P1a) {
 	// new leader
@@ -411,7 +534,11 @@ func (p *Paxos) HandleP1b(m P1b) {
 			}
 
 			// propose pending commands
-			p.onOffPendingCommands = p.pendingCommands
+			if !*isEncrypted {
+				p.onOffPendingCommands = p.pendingCommands
+			} else {
+				p.onOffPendingEncryptCommands = p.pendingEncryptedCommands
+			}
 		}
 	}
 }

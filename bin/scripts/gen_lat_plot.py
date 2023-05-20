@@ -76,7 +76,7 @@ def generate_plot(output_loc):
                      elinewidth=1,
                      zorder=4)
 
-    plt.ylim(bottom=15, top=17)
+    # plt.ylim(bottom=15, top=17)
     plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
     plt.ylabel("Average Latency (ms)")
     plt.xlabel("Command Size")

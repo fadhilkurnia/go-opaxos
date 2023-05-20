@@ -16,6 +16,7 @@ load_diff_at_cap = 1.0
 result_df = pd.read_csv("{}/capacity.csv".format(args.location), header=0, skipinitialspace=True)
 result_df = result_df.loc[(result_df['response_rate(req/s)'] != 0)]
 paxos_df = result_df.loc[(result_df['label'] == 'paxos_')].copy()
+paxos_enc_df = result_df.loc[(result_df['label'] == 'paxos_encrypt')].copy()
 opaxos_df = result_df.loc[(result_df['label'] == 'opaxos_shamir')].copy()
 opaxos_ssms_df = result_df.loc[(result_df['label'] == 'opaxos_ssms')].copy()
 
@@ -23,16 +24,16 @@ f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
 ax1.set_ylim(top=args.top, bottom=0)
 ax1.grid()
 
-data = [paxos_df, opaxos_df, opaxos_ssms_df]
-labels = ['Paxos', 'OPaxos (Shamir)', 'OPaxos (SSMS)']
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
-markers = ['.', '+', 'x']
+data = [paxos_df, paxos_enc_df, opaxos_df, opaxos_ssms_df]
+labels = ['Multi-Paxos', 'Encrypted Multi-Paxos', 'Multi-OPaxos (Shamir)', 'Multi-OPaxos (SSMS)']
+colors = ['#1f77b4', 'darkturquoise', '#ff7f0e', '#2ca02c']
+markers = ['.', '*', '+', 'x']
 capacities = []
 
 for i, raw in enumerate(data):
   raw = raw.sort_values(by=['load(req/s)'])
   x = raw['load(req/s)']
-  y = raw['median_lat(ms)']
+  y = raw['avg_lat(ms)']
   z = raw['load_diff']
   ax1.plot(x, y, label=labels[i], color=colors[i], marker=markers[i])
   capacity = np.interp(load_diff_at_cap, z, x)
@@ -40,7 +41,7 @@ for i, raw in enumerate(data):
   capacities.append(capacity)
 
 ax1.legend()
-ax1.set_ylabel('Median Latency (ms)')
+ax1.set_ylabel('Average Latency (ms)')
 ax1.get_yaxis().set_label_coords(-0.07,0.5)
 
 for i, raw in enumerate(data):
@@ -55,7 +56,7 @@ ax2.plot(np.arange(55000), np.arange(55000)/1000, zorder=1, color='gray', linest
 ax2.grid()
 ax2.set_ylabel('Resp Rate (K req/s)')
 ax2.get_yaxis().set_label_coords(-0.07,0.5)
-ax2.set_xlabel('Load (req/s)')
+ax2.set_xlabel('Offered Load (req/s)')
 ax2.set_ylim(bottom=0, top=args.top2)
 ax1.set_xlim(left=0, right=args.right)
 
