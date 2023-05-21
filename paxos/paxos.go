@@ -60,7 +60,7 @@ type Paxos struct {
 }
 
 type encryptedCommandData struct {
-	clientCommand *paxi.ClientCommand
+	*paxi.ClientCommand
 	cipherCommand []byte
 	encTime       time.Duration
 }
@@ -102,7 +102,7 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 						log.Errorf("failed to encrypt value: %v", err)
 					}
 					p.pendingEncryptedCommands <- &encryptedCommandData{
-						clientCommand: cmd,
+						ClientCommand: cmd,
 						cipherCommand: encryptedCommand,
 						encTime:       encProcTime,
 					}
@@ -143,6 +143,11 @@ func (p *Paxos) run() {
 			p.P2a(pCmd)
 			break
 
+		// similar as in onOffPendingCommands, but for the encrypted mode
+		case pCmd := <-p.onOffPendingEncryptCommands:
+			p.P2aEncrypt(pCmd)
+			break
+
 		// protocolMessages has higher priority.
 		// We try to empty the protocolMessages in each loop since for every
 		// client command potentially it will create O(N) protocol messages (propose & commit),
@@ -156,10 +161,6 @@ func (p *Paxos) run() {
 			}
 			break
 
-		// similar as in onOffPendingCommands, but for the encrypted mode
-		case pCmd := <-p.onOffPendingEncryptCommands:
-			p.P2aEncrypt(pCmd)
-			break
 		}
 	}
 
@@ -373,26 +374,21 @@ func (p *Paxos) P2aEncrypt(r *encryptedCommandData) {
 	}
 	commands := make([]paxi.BytesCommand, batchSize)
 	commandsHandler := make([]*paxi.ClientCommand, batchSize)
+	cipherCommands := make([]paxi.BytesCommand, batchSize)
 	var encryptTimes []time.Duration
 
 	// put the first to-be-proposed command
-	commands[0] = r.clientCommand.RawCommand
-	commandsHandler[0] = r.clientCommand
-	cipherCommands := make([]paxi.BytesCommand, batchSize)
-	if *paxi.GatherSecretShareTime {
-		encryptTimes[0] = r.encTime
-	}
+	commands[0] = r.RawCommand
+	commandsHandler[0] = r.ClientCommand
+	encryptTimes[0] = r.encTime
 	cipherCommands[0] = r.cipherCommand
 
 	// put the remaining to-be-proposed commands
 	for i := 1; i < batchSize; i++ {
 		cmd := <-p.onOffPendingEncryptCommands
-		commands[i] = cmd.clientCommand.RawCommand
-		commandsHandler[i] = cmd.clientCommand
-
-		if *paxi.GatherSecretShareTime {
-			encryptTimes[0] = cmd.encTime
-		}
+		commands[i] = cmd.RawCommand
+		commandsHandler[i] = cmd.ClientCommand
+		encryptTimes[i] = cmd.encTime
 		cipherCommands[i] = cmd.cipherCommand
 	}
 	log.Debugf("batching %d commands", batchSize)
