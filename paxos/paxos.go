@@ -291,47 +291,16 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	}
 	commands := make([]paxi.BytesCommand, batchSize)
 	commandsHandler := make([]*paxi.ClientCommand, batchSize)
-	var encryptTimes []time.Duration
 
 	// put the first to-be-proposed command
 	commands[0] = r.RawCommand
 	commandsHandler[0] = r
-	var cipherCommands []paxi.BytesCommand
-	if *isEncrypted == true {
-		cipherCommands = make([]paxi.BytesCommand, batchSize)
-		var encryptedCommand []byte
-		if *paxi.GatherSecretShareTime {
-			// encrypt the command and capturing the duration
-			encryptTimes = make([]time.Duration, batchSize)
-			startTime := time.Now()
-			encryptedCommand, _ = p.encrypt(r.RawCommand)
-			encryptTime := time.Since(startTime)
-			encryptTimes[0] = encryptTime
-		} else {
-			// encrypt the command without capturing the duration
-			encryptedCommand, _ = p.encrypt(r.RawCommand)
-		}
-		cipherCommands[0] = encryptedCommand
-	}
 
 	// put the remaining to-be-proposed commands
 	for i := 1; i < batchSize; i++ {
 		cmd := <-p.onOffPendingCommands
 		commands[i] = cmd.RawCommand
 		commandsHandler[i] = cmd
-
-		if *isEncrypted == true {
-			var encryptedCommand []byte
-			if *paxi.GatherSecretShareTime {
-				startTime := time.Now()
-				encryptedCommand, _ = p.encrypt(r.RawCommand)
-				encryptTime := time.Since(startTime)
-				encryptTimes[0] = encryptTime
-			} else {
-				encryptedCommand, _ = p.encrypt(r.RawCommand)
-			}
-			cipherCommands[i] = encryptedCommand
-		}
 	}
 	log.Debugf("batching %d commands", batchSize)
 
@@ -342,8 +311,8 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		commands:        commands,
 		commandsHandler: commandsHandler,
 		quorum:          paxi.NewQuorum(),
-		encryptTime:     encryptTimes,
-		cipherCommands:  cipherCommands,
+		encryptTime:     nil,
+		cipherCommands:  nil,
 	}
 
 	p.persistAcceptedValues(p.slot, p.ballot, commands)
@@ -352,10 +321,6 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		Ballot:   p.ballot,
 		Slot:     p.slot,
 		Commands: commands,
-	}
-
-	if *isEncrypted {
-		m.Commands = cipherCommands
 	}
 
 	if paxi.GetConfig().Thrifty {
