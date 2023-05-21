@@ -375,7 +375,7 @@ func (p *Paxos) P2aEncrypt(r *encryptedCommandData) {
 	commands := make([]paxi.BytesCommand, batchSize)
 	commandsHandler := make([]*paxi.ClientCommand, batchSize)
 	cipherCommands := make([]paxi.BytesCommand, batchSize)
-	var encryptTimes []time.Duration
+	encryptTimes := make([]time.Duration, batchSize)
 
 	// put the first to-be-proposed command
 	commands[0] = r.RawCommand
