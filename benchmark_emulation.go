@@ -73,8 +73,6 @@ func (b *Benchmark) RunClientWithEmulatedCommands() {
 	firstLatency = time.Now().Sub(time.Unix(0, resp.SentAt))
 	log.Infof("  latency %v", firstLatency)
 
-	return
-
 	// start emulating client. Here, we are assuming complete command IDs
 	numCmd := uint32(len(emulatedCommands))
 	for cmdID := uint32(0); cmdID < numCmd; cmdID++ {
