@@ -110,7 +110,13 @@ func (b *Benchmark) Run() {
 		b.RunClientTracefile()
 		return
 	}
+	if *ClientAction == "tpcc" {
+		*ClientIsStateful = false
+		b.RunClientWithEmulatedCommands()
+		return
+	}
 
+	// handle the default --client_action=block
 	*ClientIsStateful = false
 	b.RunBlockingClient()
 	return

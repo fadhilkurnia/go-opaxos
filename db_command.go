@@ -26,7 +26,7 @@ import (
 // - Command -> used for database interface
 // - ClientBytesCommand -> replaced with ClientCommand
 // - CrashMessage
-// TODO: They will be consolidated soon to avoid confusion
+// TODO: They need to be consolidated to avoid confusion
 // ---> Command (generic with bytes slice: type (1 byte), length (4 bytes), ... buffer )
 // -------> DBCommand: Get, Put (done)
 // -------> AdminCommand: Crash, Delay, Slow, etc (done)
@@ -50,6 +50,8 @@ const (
 
 	TypeOtherCommand       // consensus-protocol specific command, used for Fast-OPaxos
 	TypeGetMetadataCommand // used in Fast-OPaxos' client
+
+	TypeEmulatedCommand // used when --req-tracefile is specified to emulate arbitrary command execution, check at db_command_emulation.go
 
 	TypeCommandReply
 )
@@ -101,10 +103,8 @@ type AdminCommandDrop struct {
 }
 
 type ClientCommand struct {
-	CommandType byte
-	RawCommand  []byte
-	ReplyStream_x *bufio.Writer
-
+	CommandType   byte
+	RawCommand    []byte
 	ReplyStream chan *CommandReply
 }
 

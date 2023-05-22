@@ -57,6 +57,10 @@ type Paxos struct {
 	encryptJobs                 chan *paxi.ClientCommand
 	pendingEncryptedCommands    chan *encryptedCommandData
 	onOffPendingEncryptCommands chan *encryptedCommandData // non nil pointer to pendingEncryptedCommands after get response for phase 1
+
+	// data for primary-backup mode: execution precede agreement
+	isPrimaryBackupMode bool
+	emulatedCmdData     map[uint32]*paxi.EmulatedCommandData
 }
 
 type encryptedCommandData struct {
@@ -109,6 +113,15 @@ func NewPaxos(n paxi.Node, options ...func(*Paxos)) *Paxos {
 				}
 			}()
 		}
+	}
+
+	if *paxi.IsReqTracefile != "" {
+		p.isPrimaryBackupMode = true
+		traceData, err := paxi.ReadEmulatedCommandsFromTracefile(*paxi.IsReqTracefile)
+		if err != nil {
+			log.Errorf("failed to read tracefile: %s", err)
+		}
+		p.emulatedCmdData = traceData
 	}
 
 	return p
@@ -171,7 +184,7 @@ func (p *Paxos) run() {
 // channel, if the channel is full, goroutine is used to enqueue the commands. Thus
 // this method *always* return, even if the channel is full.
 func (p *Paxos) nonBlockingEnqueuePendingCommand(cmd *paxi.ClientCommand) {
-	if *isEncrypted {
+	if *isEncrypted && *paxi.IsReqTracefile == "" {
 		p.nonBlockingEnqueueEncJobsPendingCommand(cmd)
 		return
 	}
@@ -304,6 +317,23 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 	}
 	log.Debugf("batching %d commands", batchSize)
 
+	// primary-backup approach: execute than agreement
+	if *paxi.IsReqTracefile != "" {
+		stateDiffs := p.emulateExecution(commandsHandler)
+		// replace command with state-diffs (primary-backup approach)
+		for i, diff := range stateDiffs {
+			if *isEncrypted { // handle primary-backup + encryption mode
+				var err error
+				commands[i], err = p.encrypt(*diff)
+				if err != nil {
+					log.Errorf("failed to encrypt the state diffs: %s", err.Error())
+				}
+				continue
+			}
+			commands[i] = paxi.BytesCommand(*diff)
+		}
+	}
+
 	// prepare the entry
 	p.slot++
 	p.log[p.slot] = &entry{
@@ -322,6 +352,8 @@ func (p *Paxos) P2a(r *paxi.ClientCommand) {
 		Slot:     p.slot,
 		Commands: commands,
 	}
+
+	log.Infof("sending to all acceptor with data length of %d", len(commands[0]))
 
 	if paxi.GetConfig().Thrifty {
 		p.MulticastQuorum(paxi.GetConfig().N()/2+1, m)
@@ -382,6 +414,42 @@ func (p *Paxos) P2aEncrypt(r *encryptedCommandData) {
 	} else {
 		p.Broadcast(m)
 	}
+}
+
+// emulateExecution receives a batch of client command
+func (p *Paxos) emulateExecution(emulatedCommands []*paxi.ClientCommand) []*[]byte {
+	resultingStateDiffs := make([]*[]byte, len(emulatedCommands))
+	for i, cmd := range emulatedCommands {
+		if cmd.CommandType != paxi.TypeEmulatedCommand {
+			log.Errorf(
+				"expecting emulated command (type=%d), but got type=%d",
+				paxi.TypeEmulatedCommand, cmd.CommandType)
+			continue
+		}
+
+		eCmd, err := paxi.UnmarshalEmulatedCommand(cmd.RawCommand)
+		if err != nil {
+			log.Errorf("failed to unmarshal the emulated command: %s", err)
+			continue
+		}
+
+		eCmdData := p.emulatedCmdData[eCmd.CommandID]
+		if eCmdData == nil {
+			log.Errorf("unrecognized command with id %d", eCmd.CommandID)
+			continue
+		}
+
+		// emulate execution - exec time
+		// the emulated execution time already include disk fsync
+		log.Infof("emulating command %s for %v", eCmdData.CommandType, eCmdData.ExecTime)
+		time.Sleep(eCmdData.ExecTime)
+
+		// replace raw command with state diffs
+		stateDiff := eCmdData.GenerateStateDiffsData()
+		resultingStateDiffs[i] = &(stateDiff)
+	}
+
+	return resultingStateDiffs
 }
 
 // HandleP1a handles P1a message
@@ -495,10 +563,10 @@ func (p *Paxos) HandleP1b(m P1b) {
 			}
 
 			// propose pending commands
-			if !*isEncrypted {
-				p.onOffPendingCommands = p.pendingCommands
-			} else {
+			if *isEncrypted && *paxi.IsReqTracefile == "" {
 				p.onOffPendingEncryptCommands = p.pendingEncryptedCommands
+			} else {
+				p.onOffPendingCommands = p.pendingCommands
 			}
 		}
 	}
@@ -648,6 +716,18 @@ func (p *Paxos) execCommands(batchIdx int, byteCmd *paxi.BytesCommand, slot int,
 	}
 
 	if !p.IsLeader() {
+		return reply
+	}
+
+	// primary-backup approach, the command is already executed before agreement
+	// so here we directly return
+	if *paxi.IsReqTracefile != "" {
+		eCmd, err := paxi.UnmarshalEmulatedCommand(e.commandsHandler[batchIdx].RawCommand)
+		if err != nil {
+			log.Errorf("failed to unmarshal the emulated command: %s", err.Error())
+			return reply
+		}
+		reply.SentAt = eCmd.SentAt // forward sentAt from client back to client
 		return reply
 	}
 

@@ -126,6 +126,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 	acceptableCommandType.Add(TypeAdminCrashCommand)
 	acceptableCommandType.Add(TypeOtherCommand)
 	acceptableCommandType.Add(TypeGetMetadataCommand)
+	acceptableCommandType.Add(TypeEmulatedCommand)
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket

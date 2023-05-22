@@ -73,6 +73,10 @@ type OPaxos struct {
 
 	trustedNodeIDs   map[paxi.ID]bool
 	untrustedNodeIDs map[paxi.ID]bool
+
+	// data for primary-backup mode: execution precede agreement
+	isPrimaryBackupMode bool
+	emulatedCmdData     map[uint32]*paxi.EmulatedCommandData
 }
 
 // NewOPaxos creates new OPaxos instance (constructor)
@@ -133,6 +137,15 @@ func NewOPaxos(n paxi.Node, options ...func(*OPaxos)) *OPaxos {
 		if !isNodeTrusted {
 			op.untrustedNodeIDs[nodeID] = true
 		}
+	}
+
+	if *paxi.IsReqTracefile != "" {
+		op.isPrimaryBackupMode = true
+		traceData, err := paxi.ReadEmulatedCommandsFromTracefile(*paxi.IsReqTracefile)
+		if err != nil {
+			log.Errorf("failed to read tracefile: %s", err)
+		}
+		op.emulatedCmdData = traceData
 	}
 
 	return op
@@ -211,6 +224,11 @@ func (op *OPaxos) run() {
 // channel, if the channel is full, goroutine is used to enqueue the commands. Thus,
 // this method *always* return, even if the channel is full.
 func (op *OPaxos) nonBlockingEnqueueSSJobs(rawCmd *paxi.ClientCommand) {
+	// handle primary-backup emulation
+	if *paxi.IsReqTracefile != "" {
+		op.nonBlockingEnqueueEmptySSCmd(rawCmd)
+		return
+	}
 	isChannelFull := false
 	if len(op.ssJobs) == cap(op.ssJobs) {
 		log.Warningf("Channel for ss jobs is full (len=%d)", len(op.ssJobs))
@@ -222,6 +240,33 @@ func (op *OPaxos) nonBlockingEnqueueSSJobs(rawCmd *paxi.ClientCommand) {
 	} else {
 		go func() {
 			op.ssJobs <- rawCmd
+		}()
+	}
+}
+
+// nonBlockingEnqueueEmptySSCmd is for primary backup approach where we execute before agreement,
+// thus we directly enqueue empty SecretSharedCommand directly into pendingCommands, without
+// doing secret-sharing
+func (op *OPaxos) nonBlockingEnqueueEmptySSCmd(rawCmd *paxi.ClientCommand) {
+	isChannelFull := false
+	if len(op.pendingCommands) == cap(op.pendingCommands) {
+		log.Warningf("Channel for pendingCommands is full (len=%d)", len(op.pendingCommands))
+		isChannelFull = true
+	}
+
+	if !isChannelFull {
+		op.pendingCommands <- &SecretSharedCommand{
+			ClientCommand: rawCmd,
+			SSTime:        0,
+			Shares:        nil,
+		}
+	} else {
+		go func() {
+			op.pendingCommands <- &SecretSharedCommand{
+				ClientCommand: rawCmd,
+				SSTime:        0,
+				Shares:        nil,
+			}
 		}()
 	}
 }
@@ -628,8 +673,10 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	commands[0] = r.RawCommand
 	commandsHandler[0] = r.ClientCommand
 	ssEncTimes[0] = r.SSTime
-	sharesBatch[0] = r.Shares[0]
-	for i := 0; i < op.N-1; i++ {
+	if *paxi.IsReqTracefile == "" {
+		sharesBatch[0] = r.Shares[0]
+	}
+	for i := 0; *paxi.IsReqTracefile == "" && i < op.N-1; i++ {
 		proposalShares[i] = append(proposalShares[i], r.Shares[i+1])
 	}
 
@@ -639,12 +686,37 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 		commands[i] = cmd.RawCommand
 		commandsHandler[i] = cmd.ClientCommand
 		ssEncTimes[i] = cmd.SSTime
-		sharesBatch[i] = cmd.Shares[0]
-		for j := 0; j < op.N-1; j++ {
+		if *paxi.IsReqTracefile == "" {
+			sharesBatch[i] = r.Shares[0]
+		}
+		for j := 0; *paxi.IsReqTracefile == "" && j < op.N-1; j++ {
 			proposalShares[j] = append(proposalShares[j], cmd.Shares[j+1])
 		}
 	}
 	log.Debugf("batching %d commands", batchSize)
+
+	// primary-backup approach: execute than agreement
+	if *paxi.IsReqTracefile != "" {
+		// emulated in batch
+		resultingStateDiffs := op.emulateExecution(commandsHandler)
+		for i := 0; i < batchSize; i++ {
+			// handle empty state diffs, for instance from a read command
+			if len(resultingStateDiffs[i]) == 0 {
+				sharesBatch[i] = nil
+				var emptyShare SecretShare
+				for j := 0; j < op.N-1; j++ {
+					proposalShares[j] = append(proposalShares[j], emptyShare)
+				}
+				continue
+			}
+
+			// handle non-empty state diffs
+			sharesBatch[i] = resultingStateDiffs[i][0]
+			for j := 0; j < op.N-1; j++ {
+				proposalShares[j] = append(proposalShares[j], resultingStateDiffs[i][j+1])
+			}
+		}
+	}
 
 	// prepare the entry that contains a batch of commands
 	op.slot++
@@ -667,6 +739,7 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 	// preparing different proposal for each acceptor
 	proposeRequests := make([]interface{}, op.N-1)
 	for i := 0; i < op.N-1; i++ {
+		log.Infof("sending to acceptor %d with data length of %d", i, len(proposalShares[i][0]))
 		proposeRequests[i] = P2a{
 			Ballot:      op.ballot,
 			Slot:        op.slot,
@@ -677,6 +750,57 @@ func (op *OPaxos) Propose(r *SecretSharedCommand) {
 
 	// broadcast propose message to the acceptors
 	op.MulticastUniqueMessage(proposeRequests)
+}
+
+// emulateExecution receives a batch of raw commands, execute them (in emulation),
+// capture the state differences, and secret shares the state differences.
+// emulateExecution returns the secret-shares of the state diffs.
+// Check out paxos.emulateExecution() for the same emulation.
+func (op OPaxos) emulateExecution(emulatedCommands []*paxi.ClientCommand) [][]SecretShare {
+	ssResultingDiffs := make([][]SecretShare, len(emulatedCommands))
+	for i, cmd := range emulatedCommands {
+		if cmd .CommandType != paxi.TypeEmulatedCommand {
+			log.Errorf(
+				"expecting emulated command (type=%d), but got type=%d",
+				paxi.TypeEmulatedCommand, cmd.CommandType)
+			continue
+		}
+
+		eCmd, err := paxi.UnmarshalEmulatedCommand(cmd.RawCommand)
+		if err != nil {
+			log.Errorf("failed to unmarshal the emulated command: %s", err)
+			continue
+		}
+
+		eCmdData := op.emulatedCmdData[eCmd.CommandID]
+		if eCmdData == nil {
+			log.Errorf("unrecognized command with id %d", eCmd.CommandID)
+			continue
+		}
+
+		// emulate execution - exec time
+		// the emulated execution time already include disk fsync
+		log.Infof("emulating command %s for %v", eCmdData.CommandType, eCmdData.ExecTime)
+		time.Sleep(eCmdData.ExecTime)
+
+		// get the state diffs
+		stateDiff := eCmdData.GenerateStateDiffsData()
+
+		// secret-shares the state diffs
+		var ssStateDiff []SecretShare
+		var errSS error
+		if len(stateDiff) > 0 {
+			ssStateDiff, _, errSS = op.defaultSSWorker.SecretShareCommand(stateDiff)
+			if errSS != nil {
+				log.Errorf("failed to secret-shares state diffs after executing command with id %d: %s", eCmd.CommandID, errSS.Error())
+				continue
+			}
+		}
+
+		ssResultingDiffs[i] = make([]SecretShare, len(ssStateDiff))
+		copy(ssResultingDiffs[i], ssStateDiff)
+	}
+	return ssResultingDiffs
 }
 
 func (op *OPaxos) HandleProposeRequest(m P2a) {
@@ -821,6 +945,18 @@ func (op *OPaxos) execCommands(byteCmd *paxi.BytesCommand, slot int, e *entry, c
 	}
 
 	if !op.isLeader {
+		return reply
+	}
+
+	// primary-backup approach, the command is already executed before agreement
+	// so here we directly return to client
+	if *paxi.IsReqTracefile != "" {
+		eCmd, err := paxi.UnmarshalEmulatedCommand(e.commandsHandler[cid].RawCommand)
+		if err != nil {
+			log.Errorf("failed to unmarshal the emulated command: %s", err.Error())
+			return reply
+		}
+		reply.SentAt = eCmd.SentAt // forward sentAt from client back to client
 		return reply
 	}
 
