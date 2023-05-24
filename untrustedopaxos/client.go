@@ -134,11 +134,11 @@ func (c *Client) doDirectCommand(cmd paxi.SerializableCommand) (*paxi.CommandRep
 			continue
 		}
 		if resp.CommandID != uint32(cmdID) {
-			log.Warningf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
+			log.Debugf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
 			continue
 		}
 		if len(resp.Data) == 0 {
-			log.Infof("receiving empty response")
+			log.Debugf("receiving empty response")
 		}
 
 		rm.startTime = resp.SentAt

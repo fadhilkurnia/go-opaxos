@@ -175,7 +175,7 @@ func (op *OPaxos) nonBlockingEnqueuePendingCommands(rawCmd *paxi.ClientCommand) 
 			proposalCmdBatch := p2a.CommandBatch
 
 			if e == nil {
-				log.Fatalf("already receiving proposal, but entry is still nil (cob=%s)", cmdID)
+				log.Errorf("already receiving proposal, but entry is still nil (cob=%s)", cmdID)
 			}
 
 			isBatchComplete := true
@@ -542,6 +542,7 @@ func (op *OPaxos) HandleProposeRequest(m P2a) {
 		}
 
 		// update entry
+		op.log[m.Slot].isBatchComplete = true
 		op.persistAcceptedCommands(m.Slot, m.Ballot, clientCommands)
 
 		// speculatively execute and return the result to the client
