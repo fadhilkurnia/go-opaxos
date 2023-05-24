@@ -571,6 +571,7 @@ func (op *OPaxos) proposeUncommittedEntries() {
 			for k := 0; k < numRecoveryShares; k++ {
 				secretSharedCommand[k] = recoveryShares[k].SharesBatch[j]
 			}
+			// TODO: use ssWorker.DecodeShares()
 			newShares, err := shamir.Regenerate(secretSharedCommand, op.N)
 			if err != nil {
 				log.Fatalf("failed to reconstruct command (s=%d, ob=%s): %v",

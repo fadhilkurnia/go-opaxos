@@ -1,158 +1,374 @@
-package opaxos
+package untrustedopaxos
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
-	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
-	"github.com/valyala/fasthttp"
-	"io/ioutil"
-	"math/rand"
-	"net/http"
-	"net/http/httputil"
+	"github.com/ailidani/paxi/opaxos"
+	"time"
 )
 
-// TODO: deprecate this
-
-// Client overwrites read and write operation with generic request
-// all requests are sent as POST request to http://ip:port/b with
-// command as []byte in the http body
 type Client struct {
-	*paxi.HTTPClient
+	paxi.Client
+
+	config   paxi.Config
+	opConfig opaxos.Config
+
+	clientID         paxi.ID
+	curBallot        ClientOriginalBallot
+	ssWorker         opaxos.SecretSharingWorker
+	nodeClients      map[paxi.ID]*paxi.TCPClient // nodeClients is a client instance for each node
+	nodeResponseChan chan *paxi.CommandReply     // this channel subscribes to the responses from ALL the nodes
+	responseChan     chan *paxi.CommandReply     // this channel is for paxi.AsyncClient user
+
+	outstandingRequests map[ClientOriginalBallot]*requestMetadata // sending time of requests
 }
 
-func NewClient(id paxi.ID) *Client {
+type requestMetadata struct {
+	startTime      int64
+	numResponse    int
+	isLeaderAck    bool
+	reqType        byte
+	responseShares []opaxos.SecretShare
+}
+
+func NewClient() *Client {
+	log.Debugf("initializing new client for the untrusted mode")
+	config := paxi.GetConfig()
+	untrustedOPaxosConfig := opaxos.InitConfig(&config)
+	clientID := paxi.NewID(99, time.Now().Nanosecond()%32767)
+
+	log.Debugf("client id %s", clientID)
+	log.Debugf("client initial ballot %s", NewBallot(0, clientID))
+
 	c := &Client{
-		HTTPClient: paxi.NewHTTPClient(id),
+		clientID:            clientID,
+		config:              config,
+		opConfig:            untrustedOPaxosConfig,
+		curBallot:           NewBallot(0, clientID),
+		nodeClients:         make(map[paxi.ID]*paxi.TCPClient),
+		outstandingRequests: make(map[ClientOriginalBallot]*requestMetadata),
+		nodeResponseChan:    make(chan *paxi.CommandReply, config.ChanBufferSize),
+		ssWorker: opaxos.NewWorker(
+			untrustedOPaxosConfig.Protocol.SecretSharing,
+			untrustedOPaxosConfig.N(),
+			untrustedOPaxosConfig.Protocol.Threshold),
 	}
+
+	if len(config.PublicAddrs) != config.N() || len(config.PublicAddrs) == 0 {
+		log.Fatalf("there must be %d>0 node address", config.N())
+	}
+
+	// initialize connection to all the untrusted nodes
+	for nid, _ := range config.PublicAddrs {
+		c.nodeClients[nid] = paxi.NewTCPClient(nid).Start()
+		// redirect responses from all the nodes to a single destination channel
+		go func(respChan chan *paxi.CommandReply, destChan chan *paxi.CommandReply) {
+			for r := range respChan {
+				destChan <- r
+			}
+		}(c.nodeClients[nid].GetResponseChannel(), c.nodeResponseChan)
+	}
+
+	// make a single node as the leader
+	// by default 1.1 is the consensus coordinator
+	leaderID := paxi.NewID(1, 1)
+	err := c.nodeClients[leaderID].SendCommand(paxi.BeLeaderRequest{})
+	if err != nil {
+		log.Fatalf("fail to ask a node to be a leader: %s", err.Error())
+	}
+	time.Sleep(1 * time.Second) // wait till the leader got elected
+
 	return c
 }
 
-func (c *Client) Get(key paxi.Key) (paxi.Value, error) {
-	c.HTTPClient.CID++
+func (c *Client) increaseBallot() {
+	log.Debugf("prev ballot: %s", c.curBallot)
+	c.curBallot.Next()
+	log.Debugf("new ballot: %s", c.curBallot)
+}
 
-	keyBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(keyBytes, uint32(key))
-	gr := paxi.GenericCommand{
-		CommandID: uint32(c.HTTPClient.CID),
-		Key:       keyBytes,
+// Get implements paxi.Client interface for untrustedopaxos.Client
+// this is a blocking interface
+func (c *Client) Get(key paxi.Key) (paxi.Value, error) {
+	cmd := paxi.DBCommandGet{
+		CommandID: uint32(c.curBallot),
+		Key:       key,
 	}
-	gcb := gr.ToBytesCommand()
-	ret, err := c.makeGenericRESTCall(gcb)
+	ret, err := c.doDirectCommand(&cmd)
 	if err != nil {
 		return nil, err
 	}
-
-	return ret, nil
+	return ret.Data, nil
 }
 
 func (c *Client) Put(key paxi.Key, value paxi.Value) error {
-	_, err := c.PutRet(key, value)
-	return err
-}
-
-func (c *Client) Put2(key paxi.Key, value paxi.Value) (interface{}, error) {
-	return c.PutRet(key, value)
-}
-
-func (c *Client) PutRet(key paxi.Key, value paxi.Value) (paxi.Value, error) {
-	c.HTTPClient.CID++
-
-	keyBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(keyBytes, uint32(key))
-	gr := paxi.GenericCommand{
-		CommandID: uint32(c.HTTPClient.CID),
-		Key:       keyBytes,
+	log.Debugf("executing put command %d %s", key, value)
+	cmd := paxi.DBCommandPut{
+		CommandID: uint32(c.curBallot),
+		Key:       key,
 		Value:     value,
 	}
-	gcb := gr.ToBytesCommand()
-	ret, err := c.makeGenericRESTCall(gcb)
+	_, err := c.doDirectCommand(&cmd)
 	if err != nil {
+		log.Errorf("failed to invoke command: %s", err.Error())
+		return err
+	}
+	return nil
+}
+
+// warning doDirectCommand is not thread safe, this is used for a blocking client.
+func (c *Client) doDirectCommand(cmd paxi.SerializableCommand) (*paxi.CommandReply, error) {
+	if err := c.sendDirectCommand(cmd); err != nil {
 		return nil, err
+	}
+
+	// wait for t response AND ack from the leader
+	cmdID := c.curBallot
+	rm := c.outstandingRequests[cmdID]
+	for true {
+		resp := <-c.nodeResponseChan
+		log.Debugf("receiving a response for %s: %v", ClientOriginalBallot(resp.CommandID), resp)
+		if resp.Code != paxi.CommandReplyOK {
+			log.Errorf("receiving err response: %s", string(resp.Data))
+			continue
+		}
+		if resp.CommandID != uint32(cmdID) {
+			log.Warningf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
+			continue
+		}
+		if len(resp.Data) == 0 {
+			log.Infof("receiving empty response")
+		}
+
+		rm.startTime = resp.SentAt
+		rm.numResponse++
+		rm.responseShares = append(rm.responseShares, opaxos.SecretShare(resp.Data))
+		log.Debugf("receiving a response: %v", resp.Data)
+
+		if resp.Metadata[paxi.MetadataLeaderAck] != nil {
+			rm.isLeaderAck = true
+		}
+
+		if rm.numResponse >= c.opConfig.Protocol.Threshold && rm.isLeaderAck {
+			log.Debugf("received responses: %v", rm.responseShares)
+			break
+		}
+
+	}
+
+	// reconstruct the response
+	var decVal []byte
+	var err error
+	if cmd.GetCommandType() == paxi.TypeDBGetCommand {
+		var filteredShares []opaxos.SecretShare
+		for _, rs := range rm.responseShares {
+			if len(rs) != 0 {
+				filteredShares = append(filteredShares, rs)
+			}
+		}
+		decVal, err = c.ssWorker.DecodeShares(filteredShares)
+		if err != nil {
+			log.Errorf("failed to decode the shares: %v", err.Error())
+			return nil, err
+		}
+	}
+
+	ret := &paxi.CommandReply{
+		CommandID: uint32(cmdID),
+		SentAt:    rm.startTime,
+		Code:      paxi.CommandReplyOK,
+		Data:      decVal,
+		Metadata:  nil,
 	}
 
 	return ret, nil
 }
 
-func (c *Client) getURL(id paxi.ID) string {
-	if id == "" {
-		for id = range c.HTTP {
-			if c.ID == "" || id.Zone() == c.ID.Zone() {
-				break
-			}
-		}
-
-		i := rand.Intn(len(c.HTTP))
-		for id = range c.HTTP {
-			if i == 0 {
-				break
-			}
-			i--
-		}
+// sendDirectCommand sends the command directly to all the nodes, without waiting for
+// the response. The response later can be collected from responseChan.
+// Note that ballot number increments can only be done here!
+func (c *Client) sendDirectCommand(cmd paxi.SerializableCommand) error {
+	if cmd.GetCommandType() != paxi.TypeDBGetCommand && cmd.GetCommandType() != paxi.TypeDBPutCommand {
+		return errors.New("unrecognized command type for untrusted mode")
 	}
-	return c.HTTP[id] + "/b"
-}
 
-func (c *Client) makeGenericRESTCall(bodyRaw []byte) ([]byte, error) {
-	httpReq, err := http.NewRequest(http.MethodPost, c.getURL(c.ID), bytes.NewBuffer(bodyRaw))
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
-	httpReq.Header.Set(paxi.HTTPClientID, string(c.ID))
+	// increase the client ballot number
+	// replace the CommandID given by the user
+	c.increaseBallot()
+	cmdID := uint32(c.curBallot)
 
-	rep, err := c.NativeHTTPClient.Do(httpReq)
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
-	defer rep.Body.Close()
-
-	if rep.StatusCode == http.StatusOK {
-		b, err := ioutil.ReadAll(rep.Body)
+	// secret-share the command, only for Put command
+	var secretShares []opaxos.SecretShare
+	if cmd.GetCommandType() == paxi.TypeDBPutCommand {
+		log.Debugf("secret-sharing the command")
+		x := cmd.(*paxi.DBCommandPut)
+		ss, _, err := c.ssWorker.SecretShareCommand(x.Value)
 		if err != nil {
-			log.Error(err)
-			return nil, err
+			log.Errorf("failed to secret-shares the command: %s", err.Error())
+			return err
 		}
-		log.Debugf("node=%v type=%s cmd=%x", c.ID, http.MethodPost, bodyRaw)
-		return b, nil
+		secretShares = make([]opaxos.SecretShare, c.config.N())
+		for i, s := range ss {
+			secretShares[i] = make([]byte, len(s))
+			copy(secretShares[i], s)
+		}
+	} else if cmd.GetCommandType() == paxi.TypeDBGetCommand {
+
+	} else {
+		return errors.New("unrecognized command type")
 	}
 
-	// http call failed
-	dump, _ := httputil.DumpResponse(rep, true)
-	log.Debugf("%q", dump)
-	return nil, errors.New(rep.Status)
+	// store the request metadata
+	rm := &requestMetadata{
+		startTime:   0,
+		numResponse: 0,
+		isLeaderAck: false,
+		reqType:     cmd.GetCommandType(),
+	}
+	c.outstandingRequests[c.curBallot] = rm
+
+	// Broadcast command to all the nodes
+	sendTime := time.Now()
+	rm.startTime = sendTime.UnixNano()
+	nid := 0
+	var nonNilErr error
+	for id, nc := range c.nodeClients {
+		log.Debugf("directCommand: sending secret-shared command %s to %s", ClientOriginalBallot(cmdID), id)
+		var err error
+		if cmd.GetCommandType() == paxi.TypeDBGetCommand {
+			x := cmd.(*paxi.DBCommandGet)
+			err = nc.SendCommand(&paxi.DBCommandGet{
+				CommandID: cmdID,
+				SentAt:    sendTime.UnixNano(),
+				Key:       x.Key,
+			})
+		} else if cmd.GetCommandType() == paxi.TypeDBPutCommand {
+			x := cmd.(*paxi.DBCommandPut)
+			log.Debugf("sending command to %s: %v", id, secretShares[nid])
+			log.Debugf("replacing cmd-id=%d with %s", x.CommandID, ClientOriginalBallot(cmdID))
+			err = nc.SendCommand(&paxi.DBCommandPut{
+				CommandID: cmdID,
+				SentAt:    sendTime.UnixNano(),
+				Key:       x.Key,
+				Value:     paxi.Value(secretShares[nid]),
+			})
+		}
+		if err != nil {
+			log.Errorf("failed to send command to %s: %s", id, err)
+			nonNilErr = err
+		}
+		nid++
+	}
+
+	return nonNilErr
 }
 
-func (c *Client) makeGenericRESTCallWithFastHTTP(bodyRaw []byte) ([]byte, error) {
-	httpReq := fasthttp.AcquireRequest()
-	httpResp := fasthttp.AcquireResponse()
-	defer func() {
-		fasthttp.ReleaseResponse(httpResp)
-		fasthttp.ReleaseRequest(httpReq)
-	}()
+func (c *Client) Put2(key paxi.Key, value paxi.Value) (interface{}, error) {
+	panic("unimplemented")
+}
 
-	httpReq.SetRequestURI(c.getURL(c.ID))
-	httpReq.Header.SetMethod(fasthttp.MethodPost)
-	httpReq.Header.Set(paxi.HTTPClientID, string(c.ID))
-	httpReq.SetBody(bodyRaw)
+// SendCommand implements paxi.AsyncClient interface for opaxos.Client
+func (c *Client) SendCommand(cmd paxi.SerializableCommand) error {
+	cmdType := cmd.GetCommandType()
+	switch cmdType {
+	case paxi.TypeDBPutCommand:
+	case paxi.TypeDBGetCommand:
+	default:
+		return errors.New("unknown command type")
+	}
+	return c.sendDirectCommand(cmd)
+}
 
-	err := c.LeaderClient.Do(httpReq, httpResp)
-	if err != nil {
-		log.Error(err)
-		return nil, err
+func (c *Client) GetResponseChannel() chan *paxi.CommandReply {
+	return c.responseChan
+}
+
+type ClientCreator struct {
+	paxi.BenchmarkClientCreator
+}
+
+func (cc *ClientCreator) Create() {
+	panic("unimplemented")
+}
+
+func (cc *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
+	c := NewClient()
+	c.responseChan = make(chan *paxi.CommandReply, c.config.ChanBufferSize)
+
+	// consume the response from all the nodes
+	// TODO: make this thread safe
+	go func(cli *Client) {
+		for true {
+			resp := <-cli.nodeResponseChan
+			log.Debugf("receiving a response %v", resp)
+			if resp.Code != paxi.CommandReplyOK {
+				log.Errorf("receiving err response: %s", string(resp.Data))
+				continue
+			}
+			if resp.CommandID != uint32(c.curBallot) {
+				log.Warningf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
+				continue
+			}
+
+			rm := cli.outstandingRequests[ClientOriginalBallot(resp.CommandID)]
+			if rm == nil {
+				log.Fatalf("no data for outstanding request %s", ClientOriginalBallot(resp.CommandID))
+			}
+
+			rm.numResponse++
+			rm.responseShares = append(rm.responseShares, opaxos.SecretShare(resp.Data))
+
+			if resp.Metadata[paxi.MetadataLeaderAck] != nil {
+				rm.isLeaderAck = true
+			}
+
+			if rm.numResponse >= c.opConfig.Protocol.Threshold && rm.isLeaderAck {
+				log.Debugf("received responses: %v", rm.responseShares)
+				decResp, err := cli.DecodeResponse(ClientOriginalBallot(resp.CommandID), rm)
+				if err != nil {
+					log.Errorf("failed to decode response cid=%s : %s",
+						ClientOriginalBallot(resp.CommandID), err.Error())
+				}
+				c.responseChan <- decResp
+			}
+		}
+	}(c)
+
+	return c, nil
+}
+
+func (c *Client) DecodeResponse(cmdID ClientOriginalBallot, rm *requestMetadata) (*paxi.CommandReply, error) {
+	// reconstruct the response
+	var decVal []byte
+	var err error
+	if rm.reqType == paxi.TypeDBGetCommand {
+		var filteredShares []opaxos.SecretShare
+		for _, rs := range rm.responseShares {
+			if len(rs) != 0 {
+				filteredShares = append(filteredShares, rs)
+			}
+		}
+		if len(filteredShares) != 0 {
+			decVal, err = c.ssWorker.DecodeShares(filteredShares)
+			if err != nil {
+				log.Errorf("failed to decode the shares: %v", err.Error())
+				return nil, err
+			}
+		}
 	}
 
-	// http call failed
-	if httpResp.StatusCode() != fasthttp.StatusOK {
-		log.Debugf("failed response: %q", httpResp.Body())
-		return nil, errors.New(fmt.Sprintf("failed response: %q", httpResp.Body()))
+	ret := &paxi.CommandReply{
+		CommandID: uint32(cmdID),
+		SentAt:    rm.startTime,
+		Code:      paxi.CommandReplyOK,
+		Data:      decVal,
+		Metadata:  nil,
 	}
 
-	rawResponse := make([]byte, len(httpResp.Body()))
-	copy(rawResponse, httpResp.Body())
-	log.Debugf("node=%v type=%s cmd=%x", c.ID, http.MethodPost, bodyRaw)
-	return rawResponse, nil
+	return ret, nil
+}
+
+func (cc *ClientCreator) CreateCallbackClient() (paxi.AsyncCallbackClient, error) {
+	panic("unimplemented")
 }

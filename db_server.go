@@ -127,6 +127,7 @@ func (n *node) handleIncomingCommands(conn net.Conn) {
 	acceptableCommandType.Add(TypeOtherCommand)
 	acceptableCommandType.Add(TypeGetMetadataCommand)
 	acceptableCommandType.Add(TypeEmulatedCommand)
+	acceptableCommandType.Add(TypeBeLeaderCommand)
 
 	for {
 		// clientReader blocks until bytes are available in the underlying socket
@@ -251,6 +252,10 @@ func (n *node) handleIncomingAdminCommands(cmdType byte, cmdBuff []byte, replySt
 
 	case TypeAdminPartitionCommand:
 		panic("handler for partition command is still unimplemented")
+
+	case TypeBeLeaderCommand:
+		n.MessageChan <- BeLeaderRequest{}
+		return
 
 	default:
 		log.Errorf("unknown AdminCommand %d", cmdType)

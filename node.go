@@ -149,6 +149,7 @@ func (n *node) Run() {
 func (n *node) recv() {
 	for {
 		m := n.Recv()
+		log.Debugf("node receiving messages: %v", m)
 		switch m := m.(type) {
 		case Request:
 			m.c = make(chan Reply, 1)

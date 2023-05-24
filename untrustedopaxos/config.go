@@ -1,4 +1,4 @@
-package opaxos
+package untrustedopaxos
 
 import (
 	"github.com/ailidani/paxi"

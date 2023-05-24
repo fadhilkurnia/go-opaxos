@@ -4,6 +4,7 @@ import (
 	"flag"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/fastopaxos"
+	"github.com/ailidani/paxi/untrustedopaxos"
 )
 
 var id = flag.String("id", "", "node id this client connects to")
@@ -85,6 +86,10 @@ func main() {
 
 	if *algorithm == "fastopaxos" {
 		bench.ClientCreator = &fastopaxos.ClientCreator{}
+	}
+
+	if *algorithm == "untrustedopaxos" {
+		bench.ClientCreator = &untrustedopaxos.ClientCreator{}
 	}
 
 	if *load {

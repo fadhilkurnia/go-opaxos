@@ -1,4 +1,4 @@
-package opaxos
+package untrustedopaxos
 
 import (
 	"github.com/ailidani/paxi"
@@ -11,7 +11,7 @@ type Replica struct {
 	*OPaxos
 }
 
-func NewReplica(id paxi.ID) *Replica {
+func NewUntrustedServer(id paxi.ID) *Replica {
 	// parse paxi config to opaxos config
 	globalCfg := paxi.GetConfig()
 	roles := strings.Split(globalCfg.Roles[id], ",")
@@ -26,29 +26,23 @@ func NewReplica(id paxi.ID) *Replica {
 	r.Register(P2a{}, r.EnqueueProtocolMessages)
 	r.Register(P1a{}, r.EnqueueProtocolMessages)
 	r.Register(P3{}, r.EnqueueProtocolMessages)
+	r.Register(paxi.BeLeaderRequest{}, r.EnqueueProtocolMessages)
 	r.Register(&paxi.ClientCommand{}, r.EnqueueClientCommand)
 
 	return r
 }
 
-func (r *Replica) RunWithWorker() {
-	if r.OPaxos.isProposer {
-		for i := 0; i < r.OPaxos.numSSWorkers; i++ {
-			go r.OPaxos.initAndRunSecretSharingWorker()
-		}
-	}
+func (r *Replica) Run() {
 	go r.OPaxos.run()
-	r.Run()
+	r.Node.Run()
 }
 
 func (r *Replica) EnqueueProtocolMessages(pmsg interface{}) {
+	log.Debugf("enqueue protocol message: %v", pmsg)
 	r.OPaxos.protocolMessages <- pmsg
 }
 
 func (r *Replica) EnqueueClientCommand(ccmd *paxi.ClientCommand) {
-	if !r.OPaxos.isProposer {
-		log.Warningf("non trusted node receiving client command, ignored")
-		return
-	}
+	log.Debugf("enqueue client command: %v", ccmd)
 	r.OPaxos.rawCommands <- ccmd
 }

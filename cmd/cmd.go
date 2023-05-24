@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ailidani/paxi/fastopaxos"
+	"github.com/ailidani/paxi/untrustedopaxos"
 	"os"
 	"strconv"
 	"strings"
@@ -46,6 +47,9 @@ func main() {
 
 	case "fastopaxos":
 		client = fastopaxos.NewClient()
+
+	case "untrustedopaxos":
+		client = untrustedopaxos.NewClient()
 
 	default:
 		if *paxi.ClientType == "unix" {

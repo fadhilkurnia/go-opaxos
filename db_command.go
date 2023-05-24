@@ -53,11 +53,19 @@ const (
 
 	TypeEmulatedCommand // used when --req-tracefile is specified to emulate arbitrary command execution, check at db_command_emulation.go
 
+	TypeBeLeaderCommand // used in untrusted mode
+
 	TypeCommandReply
 )
 
 var AdminCommandTypes = lib.NewNonEmptySet(
-	TypeAdminCrashCommand, TypeAdminDropCommand, TypeAdminDelayCommand, TypeAdminSlowCommand, TypeAdminPartitionCommand)
+	TypeAdminCrashCommand,
+	TypeAdminDropCommand,
+	TypeAdminDelayCommand,
+	TypeAdminSlowCommand,
+	TypeAdminPartitionCommand,
+	TypeBeLeaderCommand,
+)
 
 // type of responses for command
 const (
@@ -71,6 +79,7 @@ const (
 	MetadataAcceptedBallot
 	MetadataSlot
 	MetadataCurrentBallot
+	MetadataLeaderAck
 )
 
 var ServerToClientDelay uint64 = 0
@@ -112,8 +121,8 @@ type ClientCommand struct {
 // It includes several meta-data for measurement and debugging purposes.
 type CommandReply struct {
 	CommandID uint32               `msgpack:"i"`           // CommandID the ID of the command replayed by this struct
-	Code      byte                 `msgpack:"c"`           // Code is either CommandReplyOK or CommandReplyErr
 	SentAt    int64                `msgpack:"t"`           // the time (in unixnano) when client sent the command replayed
+	Code      byte                 `msgpack:"c"`           // Code is either CommandReplyOK or CommandReplyErr
 	Data      []byte               `msgpack:"d"`           // any data, if this is reply for put command, the Data contains the value
 	Metadata  map[byte]interface{} `msgpack:"m,omitempty"` // metadata for measurements, the key is Metadata constant
 }
@@ -691,4 +700,16 @@ func (c Command) String() string {
 type ClientBytesCommand struct {
 	*BytesCommand
 	*RPCMessage
+}
+
+
+type BeLeaderRequest struct{}
+
+func (r BeLeaderRequest) Serialize() []byte {
+	buff, _ := msgpack.Marshal(r)
+	return buff
+}
+
+func (r BeLeaderRequest) GetCommandType() byte {
+	return TypeBeLeaderCommand
 }

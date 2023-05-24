@@ -34,6 +34,7 @@ type TCPClient struct {
 	responseCh chan *CommandReply
 }
 
+// NewTCPClient creates a new client for node with id=id
 func NewTCPClient(id ID) *TCPClient {
 	var err error
 	c := new(TCPClient)

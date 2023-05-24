@@ -1,6 +1,8 @@
 package opaxos
 
 import (
+	"errors"
+	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/log"
 	"github.com/fadhilkurnia/shamir/csprng"
@@ -81,4 +83,36 @@ func (w *SecretSharingWorker) SecretShareCommand(cmdBytes []byte) ([]SecretShare
 	}
 
 	return secretShares, ssTime, nil
+}
+
+func (w *SecretSharingWorker) DecodeShares(shares []SecretShare) ([]byte, error) {
+	var sharesBytes [][]byte
+	var decodedVal []byte
+	var err error
+
+	if len(shares) < w.numThreshold {
+		return nil, errors.New(fmt.Sprintf(
+			"need to have at least t=%d shares, but only provide %d", w.numThreshold, len(shares)))
+	}
+
+	sharesBytes = make([][]byte, len(shares))
+	for i := 0; i < len(shares); i++ {
+		sharesBytes[i] = make([]byte, len(shares[i]))
+		copy(sharesBytes[i], shares[i])
+	}
+
+	switch w.algorithm {
+	case SSAlgorithmShamir:
+		decodedVal, err = shamir.Combine(sharesBytes)
+
+	case SSAlgorithmSSMS:
+		decodedVal, err = krawczyk.Combine(sharesBytes, w.numShares, w.numThreshold)
+
+	default:
+		// the default is to copy the original cmdBytes into N pieces
+		decodedVal = shares[0]
+
+	}
+
+	return decodedVal, err
 }

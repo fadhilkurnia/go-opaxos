@@ -5,6 +5,7 @@ import (
 	"github.com/ailidani/paxi/fastopaxos"
 	"github.com/ailidani/paxi/fastpaxos"
 	"github.com/ailidani/paxi/opaxos"
+	"github.com/ailidani/paxi/untrustedopaxos"
 	"sync"
 
 	"github.com/ailidani/paxi"
@@ -42,6 +43,12 @@ func replica(id paxi.ID) {
 
 	case "fastopaxos":
 		fastopaxos.NewReplica(id).RunWithWorker()
+
+	case "untrustedpaxos":
+		panic("unimplemented")
+
+	case "untrustedopaxos":
+		untrustedopaxos.NewUntrustedServer(id).Run()
 
 	default:
 		panic("Unknown algorithm")

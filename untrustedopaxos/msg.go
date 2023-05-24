@@ -1,10 +1,9 @@
-package opaxos
+package untrustedopaxos
 
 import (
 	"fmt"
 	"github.com/ailidani/paxi"
 	"github.com/ailidani/paxi/encoder"
-	"time"
 )
 
 func init() {
@@ -34,14 +33,14 @@ type P1b struct {
 
 // CommandShare combines each secret-shared command with its ballot number
 type CommandShare struct {
-	Ballot      paxi.Ballot   // the accepted ballot number
-	OriBallot   paxi.Ballot   // the original ballot-number
-	SharesBatch []SecretShare // the secret-share of value being proposed, in a batch
-	ID          paxi.ID       // the sender's node ID
+	Ballot      paxi.Ballot            // the accepted ballot number
+	ID          paxi.ID                // the sender's node ID
+	OriBallots  []ClientOriginalBallot // a batch of the commands' identifier (client original ballot)
+	RawCommands [][]byte               // RawCommands for the command (only used for get req, put req is omitted)
 }
 
 func (cs CommandShare) String() string {
-	return fmt.Sprintf("Share{bacc=%s bori=%s val=%x}", cs.Ballot, cs.OriBallot, cs.SharesBatch)
+	return fmt.Sprintf("Share{bacc=%s bori=%v val=%x}", cs.Ballot, cs.OriBallots, cs.RawCommands)
 }
 
 func (m P1b) String() string {
@@ -50,14 +49,13 @@ func (m P1b) String() string {
 
 // P2a propose message from proposer to acceptor in Phase 2 (accept message)
 type P2a struct {
-	Ballot      paxi.Ballot   `msgpack:"b"` // the proposer's ballot-number
-	Slot        int           `msgpack:"s"` // the slot to be filled
-	OriBallot   paxi.Ballot   `msgpack:"o"` // the value's original ballot
-	SharesBatch []SecretShare `msgpack:"v"` // a batch of secret-shares of command
+	Ballot       paxi.Ballot            `msgpack:"b"` // the proposer's ballot-number
+	Slot         int                    `msgpack:"s"` // the slot to be filled
+	CommandBatch []ClientOriginalBallot `msgpack:"v"` // a batch of client's commands identifier (original ballot)
 }
 
 func (m P2a) String() string {
-	return fmt.Sprintf("P2a {b=%v s=%d cmd=%x}", m.Ballot, m.Slot, m.SharesBatch)
+	return fmt.Sprintf("P2a {b=%v s=%d cmd=%x}", m.Ballot, m.Slot, m.CommandBatch)
 }
 
 // P2b response of propose message, sent from acceptor to proposer
@@ -73,21 +71,11 @@ func (m P2b) String() string {
 
 // P3 message issued by proposer to commit
 type P3 struct {
-	Ballot      paxi.Ballot         `msgpack:"b"`           // the proposer's ballot-number
-	Slot        int                 `msgpack:"s"`           // the slot to be committed
-	OriBallot   paxi.Ballot         `msgpack:"o"`           // the value's original ballot
-	SharesBatch []SecretShare       `msgpack:"r,omitempty"` // a batch of secret-shares of command
-	Commands    []paxi.BytesCommand `msgpack:"v,omitempty"` // a batch of clear command for fellow trusted proposer
+	Ballot       paxi.Ballot            `msgpack:"b"`           // the proposer's ballot-number
+	Slot         int                    `msgpack:"s"`           // the slot to be committed
+	CommandBatch []ClientOriginalBallot `msgpack:"v,omitempty"` // a batch of client's commands identifier (original ballot)
 }
 
 func (m P3) String() string {
 	return fmt.Sprintf("P3 {b=%v s=%d}", m.Ballot, m.Slot)
-}
-
-type SecretShare []byte
-
-type SecretSharedCommand struct {
-	*paxi.ClientCommand               // pointer to the client's command
-	SSTime              time.Duration // time taken to secret-share the command
-	Shares              []SecretShare // the N secret-shares of the command
 }
