@@ -307,13 +307,14 @@ func (cc *ClientCreator) CreateAsyncClient() (paxi.AsyncClient, error) {
 				continue
 			}
 			if resp.CommandID != uint32(c.curBallot) {
-				log.Warningf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
+				log.Debugf("ignoring response for different command %s", ClientOriginalBallot(resp.CommandID))
 				continue
 			}
 
 			rm := cli.outstandingRequests[ClientOriginalBallot(resp.CommandID)]
 			if rm == nil {
-				log.Fatalf("no data for outstanding request %s", ClientOriginalBallot(resp.CommandID))
+				log.Errorf("no data for outstanding request %s", ClientOriginalBallot(resp.CommandID))
+				continue
 			}
 
 			rm.numResponse++
