@@ -1,151 +1,209 @@
-[![GoDoc](https://godoc.org/github.com/ailidani/paxi?status.svg)](https://godoc.org/github.com/ailidani/paxi)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ailidani/paxi)](https://goreportcard.com/report/github.com/ailidani/paxi)
-[![Build Status](https://travis-ci.org/ailidani/paxi.svg?branch=master)](https://travis-ci.org/ailidani/paxi)
+# OPaxos - Oblivious Paxos
 
+Oblivious Paxos (OPaxos) is a privacy-preserving consensus protocol 
+integrating Secret Sharing into Paxos family of consensus protocol. 
+The usage of Secret Sharing provides information-theoretic privacy,
+which protects against adversaries with unbounded computational power,
+as long as they do not collude with one another.
 
-## What is Paxi?
+Additionally, we develop Fast Oblivious Paxos (Fast-OPaxos) 
+protocol that enables non-leader node (or client) to directly
+propose value to the acceptors (backups), without leader 
+involvement. Fast-OPaxos suitable for deployment under low conflict
+rate.
 
-**Paxi** is the framework that implements WPaxos and other Paxos protocol variants. Paxi provides most of the elements that any Paxos implementation or replication protocol needs, including network communication, state machine of a key-value store, client API and multiple types of quorum systems.
+Our prototype use an efficient secret-sharing library accessible in https://github.com/fadhilkurnia/shamir.
+The library extends the secret-sharing component of Hashicorp Vault.
 
-*Warning*: Paxi project is still under heavy development, with more features and protocols to include. Paxi API may change too.
-
-Paxi paper (SIGMOD) can be found in https://dl.acm.org/doi/abs/10.1145/3299869.3319893.
-BibTex:
-```bibtex
-@inproceedings{ailijiang2019dissecting,
-  title={Dissecting the Performance of Strongly-Consistent Replication Protocols},
-  author={Ailijiang, Ailidani and Charapko, Aleksey and Demirbas, Murat},
-  booktitle={Proceedings of the 2019 International Conference on Management of Data},
-  pages={1696--1710},
-  year={2019}
+Please cite our paper titled 
+"Oblivious Paxos: Privacy-Preserving Consensus Over Secret Shares" 
+below 😊
+```
+@inproceedings{kurnia:socc23:opaxos,
+   author = {Kurnia, Fadhil I. and Venkataramani, Arun},
+   title = {Oblivious Paxos: Privacy-Preserving Consensus Over Secret Shares},
+   year = {2023},
+   isbn = {9798400703874},
+   publisher = {Association for Computing Machinery},
+   address = {New York, NY, USA},
+   url = {https://doi.org/10.1145/3620678.3624647},
+   doi = {10.1145/3620678.3624647},
+   booktitle = {Proceedings of the 2023 ACM Symposium on Cloud Computing},
+   pages = {65–80},
+   numpages = {16},
+   keywords = {Distributed Consensus, Secret Sharing, Privacy},
+   location = {Santa Cruz, CA, USA},
+   series = {SoCC '23}
 }
 ```
+DOI: https://doi.org/10.1145/3620678.3624647
 
-## What is WPaxos?
+## Quick Run
+### Installation and Compilation
+1. Download Go 1.19, then extract and install it.
+```bash
+wget https://go.dev/dl/go1.19.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.19.linux-amd64.tar.gz
+echo "export PATH=$PATH:/usr/local/go/bin" | sudo tee -a /etc/environment
+source /etc/environment
 
-**WPaxos** is a multileader Paxos protocol that provides low-latency and high-throughput consensus across wide-area network (WAN) deployments. Unlike statically partitioned multiple Paxos deployments, WPaxos perpetually adapts to the changing access locality through object stealing. Multiple concurrent leaders coinciding in different zones steal ownership of objects from each other using phase-1 of Paxos, and then use phase-2 to commit update-requests on these objects locally until they are stolen by other leaders. To achieve fast phase-2 commits, WPaxos adopts the flexible quorums idea in a novel manner, and appoints phase-2 acceptors to be close to their respective leaders.
-
-WPaxos (WAN Paxos) paper (TPDS journal version) can be found in https://ieeexplore.ieee.org/abstract/document/8765834.
-BibTex:
-```bibtex
-@article{ailijiang2019wpaxos,
-  title={WPaxos: Wide area network flexible consensus},
-  author={Ailijiang, Ailidani and Charapko, Aleksey and Demirbas, Murat and Kosar, Tevfik},
-  journal={IEEE Transactions on Parallel and Distributed Systems},
-  volume={31},
-  number={1},
-  pages={211--223},
-  year={2019},
-  publisher={IEEE}
-}
+# test the installation
+go version
 ```
+If you use different OS (e.g., MacOS) or different architecture (e.g., ARM), please
+change the downloaded Go file accordingly.
 
-## What is included?
-
-Algorithms:
-- [x] Classical multi-Paxos
-- [x] [Flexible Paxos](https://dl.acm.org/citation.cfm?id=3139656)
-- [x] [WPaxos](https://arxiv.org/abs/1703.08905)
-- [x] [EPaxos](https://dl.acm.org/citation.cfm?id=2517350)
-- [x] [SDPaxos](https://www.microsoft.com/en-us/research/uploads/prod/2018/09/172-zhao.pdf)
-- [x] Atomic Storage ([Majority Replication](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.174.7245&rep=rep1&type=pdf))
-- [x] [Chain Replication](https://www.cs.cornell.edu/home/rvr/papers/OSDI04.pdf)
-- [x] KPaxos (Static partitioned Paxos)
-- [x] [Dynamo Key-value Store](https://dl.acm.org/citation.cfm?id=1294281)
-- [x] [WanKeeper](http://ieeexplore.ieee.org/abstract/document/7980095/)
-- [x] [Vertical Paxos](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/08/Vertical-Paxos-and-Primary-Backup-Replication-.pdf)
-
-
-Features:
-- [x] Benchmarking
-- [x] Linerizability checker
-- [x] Fault injection
-
-
-# How to build
-
-1. Install [Go](https://golang.org/dl/).
-2. Use `go get` command or [Download](https://github.com/wpaxos/paxi/archive/master.zip) Paxi source code from GitHub page.
-```
-go get github.com/ailidani/paxi
-```
-
-3. Compile everything from `paxi/bin` folder.
-```
-cd github.com/ailidani/paxi/bin
+2. Clone the OPaxos repository, then compile it.
+```bash
+git clone https://github.com/opaxos/opaxos.git
+cd opaxos/bin
 ./build.sh
 ```
 
-After compile, Golang will generate 3 executable files under `bin` folder.
-* `server` is one replica instance.
-* `client` is a simple benchmark that generates read/write reqeust to servers.
+After compilation, we will have 3 executable files under `bin` folder.
+* `server` is one consensus node instance.
+* `client` is benchmark client that generates read/write request to servers.
 * `cmd` is a command line tool to test Get/Set requests.
 
+### Run OPaxos Server Nodes
 
-# How to run
-
-Each executable file expects some parameters which can be seen by `-help` flag, e.g. `./server -help`.
-
-1. Generate the [configuration file](https://github.com/ailidani/paxi/blob/master/bin/config.json) according to the example, then start server with `-config FILE_PATH` option, default to "config.json" when omit.
-
-2. Start 9 servers with different ids in format of "ZONE_ID.NODE_ID".
-```
-./server -id 1.1 -algorithm=paxos &
-./server -id 1.2 -algorithm=paxos &
-./server -id 1.3 -algorithm=paxos &
-./server -id 2.1 -algorithm=paxos &
-./server -id 2.2 -algorithm=paxos &
-./server -id 2.3 -algorithm=paxos &
-./server -id 3.1 -algorithm=paxos &
-./server -id 3.2 -algorithm=paxos &
-./server -id 3.3 -algorithm=paxos &
-```
-
-3. Start benchmarking client that connects to server ID 1.1 and benchmark parameters specified in [config.json](https://github.com/ailidani/paxi/blob/master/bin/config.json).
-```
-./client -id 1.1 -bconfig benchmark.json
-```
-When flag `id` is absent, client will randomly select any server for each operation.
-
-The algorithms can also be running in **simulation** mode, where all nodes are running in one process and transport layer is replaced by Go channels. Check [`simulation.sh`](https://github.com/ailidani/paxi/blob/master/bin/simulation.sh) script on how to run.
-
-
-# How to implement algorithms in Paxi
-
-Replication algorithm in Paxi follows the message passing model, where several message types and their handle function are registered. We use [Paxos](https://github.com/ailidani/paxi/tree/master/paxos) as an example for our step-by-step tutorial.
-
-1. Define messages, register with gob in `init()` function if using gob codec. As show in [`msg.go`](https://github.com/ailidani/paxi/blob/master/paxos/msg.go).
-
-2. Define a `Replica` structure embeded with `paxi.Node` interface.
-```go
-type Replica struct {
-	paxi.Node
-	*Paxos
+1. **Observe the configuration file** in `bin/config-opaxos.json`. 
+   It should contain something like the snippet below. 
+   The default configuration, runs 5 server nodes, which consist of 2 trusted nodes and 3 untrusted nodes.
+```json
+{
+  ...
+  "address": {
+    "1.1": "tcp://127.0.0.1:1735",
+    "1.2": "tcp://127.0.0.1:1736",
+    "1.3": "tcp://127.0.0.1:1737",
+    "1.4": "tcp://127.0.0.1:1738",
+    "1.5": "tcp://127.0.0.1:1739"
+  },
+  ...
+  "roles": {
+    "1.1": "proposer,acceptor,learner",
+    "1.2": "proposer,acceptor,learner",
+    "1.3": "acceptor,learner",
+    "1.4": "acceptor,learner",
+    "1.5": "acceptor,learner"
+  },
+  "protocol": {
+    "name": "opaxos",
+    "secret_sharing": "shamir",
+    "threshold": 2,
+    "quorum_1": 4,
+    "quorum_2": 3
+  },
 }
 ```
 
-Define handle function for each message type. For example, to handle client `Request`
-```go
-func (r *Replica) handleRequest(m paxi.Request) {
-	if *adaptive {
-		if r.Paxos.IsLeader() || r.Paxos.Ballot() == 0 {
-			r.Paxos.HandleRequest(m)
-		} else {
-			go r.Forward(r.Paxos.Leader(), m)
-		}
-	} else {
-		r.Paxos.HandleRequest(m)
-	}
-
-}
+2. **Start the 5 server nodes with different ID**. You can run them each in a separate terminal tab or 
+   alternatively run them in the background by adding `&` at the end of the command.
+```
+./server -id 1.1 -algorithm opaxos -config config-opaxos.json -log_stdout
+./server -id 1.2 -algorithm opaxos -config config-opaxos.json -log_stdout
+./server -id 1.3 -algorithm opaxos -config config-opaxos.json -log_stdout
+./server -id 1.4 -algorithm opaxos -config config-opaxos.json -log_stdout
+./server -id 1.5 -algorithm opaxos -config config-opaxos.json -log_stdout
 ```
 
-3. Register the messages with their handle function using `Node.Register(interface{}, func())` interface in `Replica` constructor.
+**What did we just run?** 
 
-Replica use `Send(to ID, msg interface{})`, `Broadcast(msg interface{})` functions in Node.Socket to send messages.
+With the provided default configuration, we are running the
+architecture illustrated below. Note that by default, the nodes communicate with Unix socket, you can
+change this to TCP by using the `-client_type tcp` flag argument.
+The `-log_stdout` flag make the server to output the log into the standard out (terminal), 
+without that flag, by default, the server write the log into `server.<pid>.log` file.
 
-For data-store related functions check `db.go` file.
+TODO: figure.
 
-For quorum types check `quorum.go` file.
+### Run OPaxos Client
 
-Client uses a simple RESTful API to submit requests. GET method with URL "http://ip:port/key" will read the value of given key. POST method with URL "http://ip:port/key" and body as the value, will write the value to key.
+To run a CLI client, simply run `cmd` with the target server node.
+```
+./cmd -id 1.1 -config config-opaxos.json
+```
+In the command above, the target server node is `1.1`, the node is going to be the leader.
+Then, in the CLI, simply enter Put/Get commands. For example:
+```
+paxi $ put 313 S3CR3T
+paxi $ get 313
+>> S3CR3T
+```
+The underlying system is a linearizable and privacy-preserving Key-Value Store with integer Key and string Value.
+
+### Run benchmark client
+
+There is also benchmark client that send a bulk of commands to the Key-Value Store.
+Use the following command to run the benchmark client.
+```
+./client -id 1.1 -config config-opaxos.json -log_stdout
+```
+The command runs the default benchmark client and will output the measured statistics as follows:
+```
+[INFO] 2023/10/31 16:47:25.711480 benchmark.go:682: Client-1 runtime = 57.775792253s
+[INFO] 2023/10/31 16:47:25.711513 benchmark.go:683: Client-1 request-rate = 1730.828710
+[INFO] 2023/10/31 16:47:25.746924 benchmark.go:695: Concurrency = 1
+[INFO] 2023/10/31 16:47:25.746942 benchmark.go:696: Write Ratio = 1.000000
+[INFO] 2023/10/31 16:47:25.746949 benchmark.go:697: Number of Keys = 9
+[INFO] 2023/10/31 16:47:25.746957 benchmark.go:698: Benchmark Time = 57.776099936s
+[INFO] 2023/10/31 16:47:25.746963 benchmark.go:699: Throughput = 1730.819493
+[INFO] 2023/10/31 16:47:25.746984 benchmark.go:700: size = 100000
+mean = 0.575717
+stddev = 0.094068
+min = 0.435383
+max = 2.198561
+median = 0.553390
+p95 = 0.728911
+p99 = 1.006410
+p999 = 1.297779
+```
+
+**What did we just run?**
+
+We run the default benchmark client as specified in the `config-opaxos.json` configuration file.
+The default benchmark client has 1 client instance and sends 100 000 blocking Put requests, each with a value of 10 bytes.
+The default benchmark client uses `-client_action=block` which means the client
+will wait for a response from a previous request before issuing the next request; 
+i.e., there is only one outstanding request at a time (or low load).
+
+For measurement under higher load (i.e., more than one outstanding requests at any given time), 
+you can use the `-client_action=pipeline` flag. 
+
+Here are the complete action type of benchmark client:
+- `block`: wait for a response from the previous request before issuing a new request.
+- `pipeline`: directly pipeline the requests; i.e., send a request without having to wait responses from previous requests. The latency is measured by putting the start time in the request payload. 
+- `callback`: similar to pipeline, but the client use callback function for each request to capture the 
+- `throughput_collector`: run client while recording the throughput every 1 second and output it in the log that by default is written to an external file (in the `client.<pid>.log` when `-log_stdout=false`).
+- `tracefile`: run client that issue request based on the provided tracefile. This is useful when we want to run standard benchmark such as YCSB.
+
+Some important benchmark configuration:
+- "T" indicates the duration of the benchmark.
+- "N" indicates the number of issued requests.
+- "K" indicates the highest integer Key, started from 1.
+- "W" indicates the ratio of write requests, max is 1.0.
+- "Size" indicates the size of value in bytes for write requests.
+- "Throttle" indicates the target load the client instances need to send.
+- "Concurrency" indicates the number of client instances.
+
+## Distributed Run
+We also provide the scripts to run OPaxos in actual distributed machines, 
+including scripts to generate some graphs shown in our paper.
+Please check the instructions to reproduce the graphs in the Wiki page.
+
+## Model Checker
+Additionally, we provide the TLA+ specification of OPaxos and model check 
+the protocol to ensure its safety property. Please check the TLA+ code in the Wiki page. 
+
+## Acknowledgement
+This prototype of OPaxos and Fast-OPaxos is possible due to 
+the original implementation of Paxi by 
+Ailidani Ailijiang, Aleksey Charapko, and Murat Demirbas, 
+that make consensus protocol development easier. 
+Please check and cite Paxi on https://github.com/ailidani/paxi.
+
+
+> Warning: this implementation is a research prototype and not 
+> suitable for production usage that require certified security guarantee. 
+> So, use it wisely 😉
