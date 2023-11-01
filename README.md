@@ -116,7 +116,27 @@ change this to TCP by using the `-client_type tcp` flag argument.
 The `-log_stdout` flag make the server to output the log into the standard out (terminal), 
 without that flag, by default, the server write the log into `server.<pid>.log` file.
 
-TODO: figure.
+```
+          acceptor
+acceptor  ┌─────┐  acceptor
+ ┌─────┐  │     │  ┌─────┐
+ │     │  │     │  │     │
+ │     │  │ 1.4 │  │     │
+ │ 1.3 │  │     │  │ 1.5 │    => 3 untrusted nodes
+ │     │  └─────┘  │     │         (honest but curious)
+ └─────┘           └─────┘
+
+
+     ┌─────┐  ┌─────┐
+     │     │  │     │
+     │     │  │     │         => 2 trusted nodes
+     │ 1.1 │  │ 1.2 │
+     │     │  │     │
+     └─────┘  └─────┘
+     proposer  proposer
+     acceptor  acceptor
+     (leader)
+```
 
 ### Run OPaxos Client
 
@@ -190,6 +210,7 @@ Some important benchmark configuration:
 ## Distributed Run
 We also provide the scripts to run OPaxos in actual distributed machines, 
 including scripts to generate some graphs shown in our paper.
+All the important variables to run all the distributed scripts are located in the `variables.sh` file.
 Please check the instructions to reproduce the graphs in the Wiki page.
 
 ## Model Checker
