@@ -207,6 +207,10 @@ Some important benchmark configuration:
 - "Throttle" indicates the target load the client instances need to send.
 - "Concurrency" indicates the number of client instances.
 
+> Note: For Fast-OPaxos, please use `-algorithm=fastopaxos` 
+> and `-client_type=tcp` for both the `server` and `client` program
+> with no concurrent client.
+
 ## Distributed Run
 We also provide the scripts to run OPaxos in actual distributed machines, 
 including scripts to generate some graphs shown in our paper.
