@@ -9,7 +9,7 @@ as long as they do not collude with one another.
 Additionally, we develop Fast Oblivious Paxos (Fast-OPaxos) 
 protocol that enables non-leader node (or client) to directly
 propose value to the acceptors (backups), without leader 
-involvement. Fast-OPaxos suitable for deployment under low conflict
+involvement. Fast-OPaxos is suitable for deployment under low conflict
 rate.
 
 Our prototype use an efficient secret-sharing library accessible in https://github.com/fadhilkurnia/shamir.
